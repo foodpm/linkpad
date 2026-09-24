@@ -1,0 +1,17 @@
+# LinkPad
+
+> 收藏好链接，分享好品味。
+
+LinkPad 是一个极简导航与链接仓库分享平台：用户把常用网站链接整理成个人导航面板，并可以创建公开的「链接仓库」与他人分享收藏。
+
+## Page structure
+
+- [首页](https://linkpad.site/)：产品入口与个人导航面板
+- [发现](https://linkpad.site/discover)：全站公开链接仓库列表
+- [仓库详情](https://linkpad.site/repo/{id})：单个公开链接仓库，{id} 为仓库 ID，全部公开仓库见站点地图
+
+## For crawlers
+
+- 站点地图：https://linkpad.site/sitemap.xml （包含全部公开仓库页面，实时更新）
+- 仓库详情页由服务端渲染 meta 信息（Open Graph + JSON-LD），无需执行 JavaScript 即可读取
+- 私有与密码保护仓库页面带 noindex 标记，不应被收录

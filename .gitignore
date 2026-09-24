@@ -1,0 +1,21 @@
+# 依赖
+node_modules/
+
+# 构建产物
+frontend/dist/
+.wrangler/
+
+# 环境与本地配置
+.dev.vars
+*.local
+.env*
+frontend/.env.example
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 本地素材与草稿（不属于源码）
+*.zip
+admin-mockup.html
+/qujumaker-*.png

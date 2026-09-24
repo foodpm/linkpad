@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LinkPad</title>
+<link rel="icon" href="logo-tab.png">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f0f2f5;
+  }
+
+  #loading-screen {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: #f0f2f5;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  #loading-screen.visible { opacity: 1; pointer-events: auto; }
+
+  .loader-logo {
+    width: 48px; height: 48px; border-radius: 14px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 20px; font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2.5px solid #e5e7eb; border-top-color: #3b82f6;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #app-iframe {
+    position: fixed; inset: 0; z-index: 10;
+    width: 100%; height: 100%; border: none; display: block;
+    opacity: 0; transition: opacity 0.35s;
+  }
+  #app-iframe.ready { opacity: 1; z-index: 60; }
+</style>
+</head>
+<body>
+
+<div id="loading-screen">
+  <div class="loader-logo">L</div>
+  <div class="spinner"></div>
+</div>
+
+<iframe id="app-iframe"
+  src="https://linkpad.site"
+  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
+></iframe>
+
+<script src="newtab.js"></script>
+
+</body>
+</html>

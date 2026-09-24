@@ -1,0 +1,1 @@
+ALTER TABLE user_tools ADD COLUMN viewed INTEGER DEFAULT 0;

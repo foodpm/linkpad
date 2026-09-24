@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+/* ---------- 骨架屏 shimmer 动画 ---------- */
+@keyframes skeleton-shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.06) 25%,
+    rgba(0, 0, 0, 0.12) 37%,
+    rgba(0, 0, 0, 0.06) 63%
+  );
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-light {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.55) 25%,
+    rgba(255, 255, 255, 0.9) 37%,
+    rgba(255, 255, 255, 0.55) 63%
+  );
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* 隐藏滚动条（内容仍可滚动） */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "极简导航",
+  "description": "一个界面简洁、分类清晰的常用工具导航网站，内置快速搜索功能。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

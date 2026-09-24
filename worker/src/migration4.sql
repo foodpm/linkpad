@@ -1,0 +1,1 @@
+ALTER TABLE user_tools ADD COLUMN click_count INTEGER DEFAULT 0;

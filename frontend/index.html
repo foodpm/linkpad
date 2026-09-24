@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LinkPad - 收藏好链接，分享好品味</title>
+    <meta name="description" content="LinkPad 是一个极简导航与链接仓库分享平台：把常用网站整理成专属导航面板，创建公开链接仓库与他人分享好链接。" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      /* 首屏骨架屏：JS 加载完成前显示，React 挂载后自动替换 */
+      @keyframes lp-shimmer {
+        0% { background-position: -400px 0; }
+        100% { background-position: 400px 0; }
+      }
+      .lp-skeleton {
+        background: linear-gradient(90deg, rgba(0,0,0,0.06) 25%, rgba(0,0,0,0.12) 37%, rgba(0,0,0,0.06) 63%);
+        background-size: 800px 100%;
+        animation: lp-shimmer 1.4s ease-in-out infinite;
+      }
+      #root > .lp-boot { min-height: 100vh; display: flex; background: linear-gradient(to bottom right, #eef2ff, #ffffff, #eff6ff); font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      .lp-boot-side { width: 192px; flex-shrink: 0; background: rgba(255,255,255,0.4); border-right: 1px solid rgba(255,255,255,0.6); padding: 16px 12px; }
+      .lp-boot-main { flex: 1; min-width: 0; }
+      .lp-boot-header { height: 80px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); }
+      .lp-boot-content { padding: 16px 40px; }
+      .lp-boot-panel { background: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.7); border-radius: 24px; padding: 24px; margin-bottom: 24px; max-width: 1152px; margin-left: auto; margin-right: auto; }
+      .lp-boot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+      .lp-boot-card { background: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.8); border-radius: 16px; padding: 12px; display: flex; align-items: center; gap: 12px; }
+      .lp-boot-ico { width: 36px; height: 36px; border-radius: 12px; flex-shrink: 0; }
+      .lp-boot-line { height: 10px; border-radius: 6px; }
+      @media (max-width: 1024px) { .lp-boot-side { display: none; } }
+      @media (max-width: 640px) { .lp-boot-grid { grid-template-columns: repeat(2, 1fr); } .lp-boot-content { padding: 16px 16px; } }
+    </style>
+  </head>
+  <body>
+    <div id="root"><div class="lp-boot">
+      <div class="lp-boot-side">
+        <div class="lp-skeleton lp-boot-line" style="width: 60%; margin: 8px auto 24px; height: 24px;"></div>
+        <div class="lp-skeleton lp-boot-line" style="width: 85%; margin-bottom: 10px;"></div>
+        <div class="lp-skeleton lp-boot-line" style="width: 70%; margin-bottom: 10px;"></div>
+        <div class="lp-skeleton lp-boot-line" style="width: 80%; margin-bottom: 10px;"></div>
+        <div class="lp-skeleton lp-boot-line" style="width: 60%; margin-bottom: 10px;"></div>
+        <div class="lp-skeleton lp-boot-line" style="width: 75%;"></div>
+      </div>
+      <div class="lp-boot-main">
+        <div class="lp-boot-header">
+          <div class="lp-skeleton" style="width: min(576px, 80%); height: 48px; border-radius: 16px;"></div>
+        </div>
+        <div class="lp-boot-content">
+          <div class="lp-boot-panel">
+            <div class="lp-skeleton lp-boot-line" style="width: 120px; margin-bottom: 20px;"></div>
+            <div class="lp-boot-grid">
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 80%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 50%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 70%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 45%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 85%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 55%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 65%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 40%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 75%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 50%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 80%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 45%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 60%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 55%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 75%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 40%;"></div></div></div>
+            </div>
+          </div>
+          <div class="lp-boot-panel">
+            <div class="lp-skeleton lp-boot-line" style="width: 100px; margin-bottom: 20px;"></div>
+            <div class="lp-boot-grid">
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 70%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 50%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 85%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 45%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 60%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 55%;"></div></div></div>
+              <div class="lp-boot-card"><div class="lp-skeleton lp-boot-ico"></div><div style="flex:1"><div class="lp-skeleton lp-boot-line" style="width: 75%; margin-bottom: 8px;"></div><div class="lp-skeleton lp-boot-line" style="width: 40%;"></div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
