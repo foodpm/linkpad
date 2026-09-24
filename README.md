@@ -72,4 +72,4 @@ npx wrangler secret put ADMIN_EMAIL   # 管理员邮箱
 
 ## License
 
-暂未开源许可证，保留所有权利。如需参考代码请先联系作者。
+[MIT](./LICENSE)
