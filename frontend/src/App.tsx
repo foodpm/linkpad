@@ -998,6 +998,8 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
  const isFirstWidgetSync = useRef(true)
  const initialLoadDone = useRef(false)
+ // 当前 widgetList 是从哪个账号加载的；防止账号切换时把上一个账号的组件写进新账号
+ const loadedWidgetsUserIdRef = useRef<string | null>(null)
   useEffect(() => {
     // Skip entirely on first mount — otherwise empty [] from new-browser
     // localStorage would overwrite cloud data before load effect runs.
@@ -1011,24 +1013,34 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     if (widgetList.filter((w: any) => w.type === 'gold').length > 0) fetchGoldPrice().catch(() => {})
     // Only save to server after initial load from server has completed.
     // Without this guard, user change triggers save with stale widgetList=[].
-    if (initialLoadDone.current && user) userPrefs.save({ widgets: widgetList, itemOrder: itemOrderRef.current, countdownEvents }).catch(() => {})
+    if (initialLoadDone.current && user && loadedWidgetsUserIdRef.current === user.id) {
+      userPrefs.save({ widgets: widgetList, itemOrder: itemOrderRef.current, countdownEvents }).catch(() => {})
+    }
   }, [widgetList, countdownEvents, fetchStockQuotes, fetchGoldPrice, user])
 
   // 退出登录/401 时清空本地组件缓存，避免串到同浏览器下一个登录的账号
   useEffect(() => {
     if (!user) {
+      // 下次登录必须重新从服务端拉取，不能沿用上一个账号的加载状态
+      initialLoadDone.current = false
+      loadedWidgetsUserIdRef.current = null
+      itemOrderRef.current = {}
       setWidgetList([])
       setCountdownEvents([])
       localStorage.removeItem('widgets')
       localStorage.removeItem('countdown_events')
+      localStorage.removeItem('categoryItemOrder')
     }
   }, [user])
 
   // Load widgets from server when user logs in
   useEffect(() => {
     if (!user) return
+    let cancelled = false
+    const userId = user.id
+    initialLoadDone.current = false
     userPrefs.load().then(data => {
-      initialLoadDone.current = true
+      if (cancelled) return
       // 以服务器数据为准：为空也覆盖，避免本地残留组件串到新账号
       setWidgetList(data.widgets || [])
       if (data.itemOrder && Object.keys(data.itemOrder).length > 0) {
@@ -1046,7 +1058,12 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
           setCountdownEvents(merged)
         }
       }
-    }).catch(() => { initialLoadDone.current = true })
+      loadedWidgetsUserIdRef.current = userId
+      initialLoadDone.current = true
+    }).catch(() => {
+      // 请求失败时保持未加载状态，避免随后把空列表写回服务端覆盖真实组件
+    })
+    return () => { cancelled = true }
   }, [user])
 
   // Auto-refresh stock quotes every 30s when visible

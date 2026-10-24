@@ -404,11 +404,8 @@ export const gold = {
 
 // User Preferences (widgets + order synced to cloud)
 export const userPrefs = {
-  load: async () => {
-    try {
-      return await request('/api/user/widgets') as { widgets: any[]; itemOrder: Record<string, string[]>; countdownEvents?: any[] }
-    } catch { return { widgets: [], itemOrder: {} as Record<string, string[]> } }
-  },
+  // 失败时向上抛出，调用方不能把「请求失败」误当成「用户没有组件」
+  load: () => request('/api/user/widgets') as Promise<{ widgets: any[]; itemOrder: Record<string, string[]>; countdownEvents?: any[] }>,
   save: async (data: { widgets: any[]; itemOrder?: Record<string, string[]>; countdownEvents?: any[] }) => {
     try {
       return await request('/api/user/widgets', { method: 'POST', body: JSON.stringify(data) })
