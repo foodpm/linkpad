@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import { admin, categories, tools, faviconCache } from '../api'
+import { useT } from '../i18n'
 import { AdminPageSkeleton } from '../components/Skeleton'
 
 type Section = 'menus' | 'users' | 'repos'
@@ -52,6 +53,7 @@ const toolPalette = [
 ]
 
 export default function AdminPage() {
+  const t = useT()
   const { user, loading: authLoading, logout } = useAuth()
   const navigate = useNavigate()
   const [isAdmin, setIsAdmin] = useState(false)
@@ -85,10 +87,14 @@ export default function AdminPage() {
   // User management
   const [userList, setUserList] = useState<any[]>([])
   const [userFilter, setUserFilter] = useState({ nickname: '', email: '', status: '' })
+  const [usersCursor, setUsersCursor] = useState<string | null>(null)
+  const [usersLoading, setUsersLoading] = useState(false)
 
   // Repo management
   const [repoList, setRepoList] = useState<any[]>([])
   const [repoFilter, setRepoFilter] = useState({ search: '', visibility: '', ownerEmail: '' })
+  const [reposCursor, setReposCursor] = useState<string | null>(null)
+  const [reposLoading, setReposLoading] = useState(false)
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null)
@@ -109,20 +115,30 @@ export default function AdminPage() {
     tools.list({ admin: true }).then(setToolList)
   }
 
-  const loadUsers = () => {
+  const loadUsers = (cursor = '') => {
     const p: any = {}
     if (userFilter.nickname) p.nickname = userFilter.nickname
     if (userFilter.email) p.email = userFilter.email
     if (userFilter.status) p.status = userFilter.status
-    admin.users.list(p).then(setUserList).catch(() => {})
+    if (cursor) p.cursor = cursor
+    setUsersLoading(true)
+    admin.users.list(p).then((res: any) => {
+      setUserList((prev: any[]) => (cursor ? [...prev, ...res.items] : res.items))
+      setUsersCursor(res.nextCursor)
+    }).catch(() => {}).finally(() => setUsersLoading(false))
   }
 
-  const loadRepos = () => {
+  const loadRepos = (cursor = '') => {
     const p: any = {}
     if (repoFilter.search) p.search = repoFilter.search
     if (repoFilter.visibility) p.visibility = repoFilter.visibility
     if (repoFilter.ownerEmail) p.ownerEmail = repoFilter.ownerEmail
-    admin.repos.list(p).then(setRepoList).catch(() => {})
+    if (cursor) p.cursor = cursor
+    setReposLoading(true)
+    admin.repos.list(p).then((res: any) => {
+      setRepoList((prev: any[]) => (cursor ? [...prev, ...res.items] : res.items))
+      setReposCursor(res.nextCursor)
+    }).catch(() => {}).finally(() => setReposLoading(false))
   }
 
   useEffect(() => { if (isAdmin && section === 'users') loadUsers() }, [isAdmin, section])
@@ -141,7 +157,7 @@ export default function AdminPage() {
   }
   const handleDeleteCategory = (id: string) => {
     setConfirm({
-      message: '确定删除此分类？所有属于此分类的链接将被一并删除。',
+      message: t('确定删除此分类？所有属于此分类的链接将被一并删除。'),
       onConfirm: async () => { await categories.delete(id, { admin: true }); loadCatsAndTools() }
     })
   }
@@ -162,31 +178,31 @@ export default function AdminPage() {
     setEditTool(null); setToolName(''); setToolUrl(''); setToolDesc(''); setToolIcon(''); setToolCatId(''); loadCatsAndTools()
   }
   const handleDeleteTool = (id: string) => {
-    setConfirm({ message: '确定删除此链接？', onConfirm: async () => { await tools.delete(id, { admin: true, force: true }); loadCatsAndTools() } })
+    setConfirm({ message: t('确定删除此链接？'), onConfirm: async () => { await tools.delete(id, { admin: true, force: true }); loadCatsAndTools() } })
   }
 
   // User handlers
   const toggleUserStatus = (u: any) => {
     const newStatus = u.status === 'disabled' ? 'active' : 'disabled'
     setConfirm({
-      message: `确定${newStatus === 'disabled' ? '禁用' : '启用'}用户「${u.nickname}」？${newStatus === 'disabled' ? '禁用后该用户将无法登录系统。' : ''}`,
+      message: t(newStatus === 'disabled' ? '确定禁用用户「{nickname}」？禁用后该用户将无法登录系统。' : '确定启用用户「{nickname}」？', { nickname: u.nickname }),
       onConfirm: async () => { await admin.users.setStatus(u.id, newStatus); loadUsers() }
     })
   }
   const handleDeleteUser = (u: any) => {
-    setConfirm({ message: `确定删除用户「${u.nickname}」？此操作不可恢复。`, onConfirm: async () => { await admin.users.delete(u.id); loadUsers() } })
+    setConfirm({ message: t('确定删除用户「{nickname}」？此操作不可恢复。', { nickname: u.nickname }), onConfirm: async () => { await admin.users.delete(u.id); loadUsers() } })
   }
 
   // Repo handlers
   const toggleRepoVisibility = (r: any) => {
     if (r.visibility === 'hidden') {
-      setConfirm({ message: `确定显示仓库「${r.name}」？`, onConfirm: async () => { await admin.repos.setVisibility(r.id, 'public'); loadRepos() } })
+      setConfirm({ message: t('确定显示仓库「{name}」？', { name: r.name }), onConfirm: async () => { await admin.repos.setVisibility(r.id, 'public'); loadRepos() } })
     } else {
-      setConfirm({ message: `确定隐藏仓库「${r.name}」？隐藏后其他用户将无法查看。`, onConfirm: async () => { await admin.repos.setVisibility(r.id, 'hidden'); loadRepos() } })
+      setConfirm({ message: t('确定隐藏仓库「{name}」？隐藏后其他用户将无法查看。', { name: r.name }), onConfirm: async () => { await admin.repos.setVisibility(r.id, 'hidden'); loadRepos() } })
     }
   }
   const handleDeleteRepo = (r: any) => {
-    setConfirm({ message: `确定删除仓库「${r.name}」？此操作不可恢复。`, onConfirm: async () => { await admin.repos.delete(r.id); loadRepos() } })
+    setConfirm({ message: t('确定删除仓库「{name}」？此操作不可恢复。', { name: r.name }), onConfirm: async () => { await admin.repos.delete(r.id); loadRepos() } })
   }
 
   if (checking || authLoading) return <AdminPageSkeleton />
@@ -198,7 +214,7 @@ export default function AdminPage() {
     if (toolCatFilter && t.category_id !== toolCatFilter) return false
     return true
   })
-  const getCatName = (id: string) => catList.find(c => c.id === id)?.name || '未分类'
+  const getCatName = (id: string) => catList.find(c => c.id === id)?.name || t('未分类')
 
   return (
     <div className="min-h-screen bg-[#f5f6f8] flex">
@@ -208,7 +224,7 @@ export default function AdminPage() {
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-56 bg-[#1a1d23] text-white flex flex-col transform transition-transform duration-200 lg:translate-x-0 lg:static lg:z-auto ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="h-16 flex items-center px-5 border-b border-[#2a2d33]">
-          <span className="text-sm font-semibold text-[#888] tracking-widest uppercase">LinkPad 管理</span>
+          <span className="text-sm font-semibold text-[#888] tracking-widest uppercase">{t('LinkPad 管理')}</span>
         </div>
         <nav className="flex-1 py-3">
           {NAV_ITEMS.map(item => {
@@ -217,14 +233,14 @@ export default function AdminPage() {
               <button key={item.id} onClick={() => { setSection(item.id); setMobileOpen(false) }}
                 className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm transition-all border-l-3 ${section === item.id ? 'bg-[#24272e] text-white border-l-[#4f8cff]' : 'text-[#aaa] hover:text-white hover:bg-[#24272e] border-l-transparent'}`}>
                 <Icon />
-                <span>{item.label}</span>
+                <span>{t(item.label)}</span>
               </button>
             )
           })}
         </nav>
         <div className="p-4 border-t border-[#2a2d33]">
           <button onClick={() => navigate('/')} className="flex items-center gap-2.5 px-3 py-2 text-sm text-[#888] hover:text-white rounded-lg hover:bg-[#24272e] transition-all w-full">
-            <IconBack /> 返回前台
+            <IconBack /> {t('返回前台')}
           </button>
         </div>
       </aside>
@@ -236,15 +252,15 @@ export default function AdminPage() {
           <button onClick={() => setMobileOpen(true)} className="lg:hidden mr-4 p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg">
             <IconMenu />
           </button>
-          <h1 className="text-lg font-bold text-gray-900">{NAV_ITEMS.find(i => i.id === section)?.label}</h1>
+          <h1 className="text-lg font-bold text-gray-900">{t(NAV_ITEMS.find(i => i.id === section)?.label || '')}</h1>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => { if (section === 'users') loadUsers(); else if (section === 'repos') loadRepos(); else loadCatsAndTools() }}
-              className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all" title="刷新">
+              className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all" title={t('刷新')}>
               <IconRefresh />
             </button>
             <button onClick={() => { logout(); navigate('/', { replace: true }) }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-all">
-              <IconLogout /> 退出
+              <IconLogout /> {t('退出')}
             </button>
           </div>
         </header>
@@ -256,17 +272,17 @@ export default function AdminPage() {
               {/* Categories */}
               <div className="bg-white rounded-xl border border-[#e5e7eb] overflow-hidden mb-6">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-[#f0f0f0]">
-                  <h2 className="font-semibold text-gray-800">默认分类</h2>
+                  <h2 className="font-semibold text-gray-800">{t('默认分类')}</h2>
                   <button onClick={() => { setEditCat(null); setCatName(''); setShowAddCat(true) }}
                     className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-all">
-                    <IconPlus /> 新增
+                    <IconPlus /> {t('新增')}
                   </button>
                 </div>
                 {/* Filter */}
                 <div className="flex items-center gap-2 px-5 py-3 border-b border-[#f0f0f0] bg-[#fafbfc]">
                   <div className="relative flex-1 max-w-xs">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><IconSearch /></span>
-                    <input value={catSearch} onChange={e => setCatSearch(e.target.value)} placeholder="搜索分类名称..."
+                    <input value={catSearch} onChange={e => setCatSearch(e.target.value)} placeholder={t('搜索分类名称...')}
                       className="w-full h-9 pl-9 pr-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
                   </div>
                 </div>
@@ -275,17 +291,17 @@ export default function AdminPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-[#f8f9fb] text-[#666] text-xs uppercase tracking-wider">
-                        <th className="text-left py-3 px-5 font-semibold">名称</th>
-                        <th className="text-left py-3 px-5 font-semibold">图标</th>
-                        <th className="text-left py-3 px-5 font-semibold">排序</th>
-                        <th className="text-left py-3 px-5 font-semibold">链接数</th>
-                        <th className="text-left py-3 px-5 font-semibold">创建时间</th>
-                        <th className="text-left py-3 px-5 font-semibold">操作</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('名称')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('图标')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('排序')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('链接数')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('创建时间')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('操作')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredCats.length === 0 ? (
-                        <tr><td colSpan={6} className="text-center py-10 text-gray-400">暂无数据</td></tr>
+                        <tr><td colSpan={6} className="text-center py-10 text-gray-400">{t('暂无数据')}</td></tr>
                       ) : filteredCats.map((cat: any) => (
                         <tr key={cat.id} className="border-t border-[#f0f0f0] hover:bg-[#fafbfc]">
                           <td className="py-3 px-5 font-medium text-gray-800">{cat.name}</td>
@@ -295,8 +311,8 @@ export default function AdminPage() {
                           <td className="py-3 px-5 text-gray-400 text-xs">{cat.created_at ? new Date(cat.created_at).toLocaleDateString('zh-CN') : '-'}</td>
                           <td className="py-3 px-5">
                             <div className="flex gap-1.5">
-                              <button onClick={() => { setEditCat(cat); setCatName(cat.name) }} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#eef2ff] text-[#4f6fff] rounded text-xs hover:bg-[#dde4ff] transition-all"><IconEdit /> 编辑</button>
-                              <button onClick={() => handleDeleteCategory(cat.id)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> 删除</button>
+                              <button onClick={() => { setEditCat(cat); setCatName(cat.name) }} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#eef2ff] text-[#4f6fff] rounded text-xs hover:bg-[#dde4ff] transition-all"><IconEdit /> {t('编辑')}</button>
+                              <button onClick={() => handleDeleteCategory(cat.id)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> {t('删除')}</button>
                             </div>
                           </td>
                         </tr>
@@ -309,22 +325,22 @@ export default function AdminPage() {
               {/* Tools */}
               <div className="bg-white rounded-xl border border-[#e5e7eb] overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-[#f0f0f0]">
-                  <h2 className="font-semibold text-gray-800">默认链接</h2>
+                  <h2 className="font-semibold text-gray-800">{t('默认链接')}</h2>
                   <button onClick={() => { setEditTool(null); setToolName(''); setToolUrl(''); setToolDesc(''); setToolIcon(''); setToolCatId(''); setShowAddTool(true) }}
                     className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-all">
-                    <IconPlus /> 新增
+                    <IconPlus /> {t('新增')}
                   </button>
                 </div>
                 {/* Filter */}
                 <div className="flex items-center gap-2 px-5 py-3 border-b border-[#f0f0f0] bg-[#fafbfc] flex-wrap">
                   <div className="relative flex-1 min-w-[160px] max-w-xs">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><IconSearch /></span>
-                    <input value={toolSearch} onChange={e => setToolSearch(e.target.value)} placeholder="搜索名称或地址..."
+                    <input value={toolSearch} onChange={e => setToolSearch(e.target.value)} placeholder={t('搜索名称或地址...')}
                       className="w-full h-9 pl-9 pr-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
                   </div>
                   <select value={toolCatFilter} onChange={e => setToolCatFilter(e.target.value)}
                     className="h-9 px-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400">
-                    <option value="">全部分类</option>
+                    <option value="">{t('全部分类')}</option>
                     {catList.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
@@ -333,16 +349,16 @@ export default function AdminPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-[#f8f9fb] text-[#666] text-xs uppercase tracking-wider">
-                        <th className="text-left py-3 px-5 font-semibold">名称</th>
-                        <th className="text-left py-3 px-5 font-semibold">地址</th>
-                        <th className="text-left py-3 px-5 font-semibold">分类</th>
-                        <th className="text-left py-3 px-5 font-semibold">创建时间</th>
-                        <th className="text-left py-3 px-5 font-semibold">操作</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('名称')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('地址')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('分类')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('创建时间')}</th>
+                        <th className="text-left py-3 px-5 font-semibold">{t('操作')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredTools.length === 0 ? (
-                        <tr><td colSpan={5} className="text-center py-10 text-gray-400">暂无数据</td></tr>
+                        <tr><td colSpan={5} className="text-center py-10 text-gray-400">{t('暂无数据')}</td></tr>
                       ) : filteredTools.map((tool: any) => (
                         <tr key={tool.id} className="border-t border-[#f0f0f0] hover:bg-[#fafbfc]">
                           <td className="py-3 px-5">
@@ -360,8 +376,8 @@ export default function AdminPage() {
                           <td className="py-3 px-5">
                             <div className="flex gap-1.5">
                               <button onClick={() => { setEditTool(tool); setToolName(tool.name); setToolUrl(tool.url); setToolDesc(tool.desc || ''); setToolIcon(tool.icon || ''); setToolCatId(tool.category_id || '') }}
-                                className="flex items-center gap-1 px-2.5 py-1.5 bg-[#eef2ff] text-[#4f6fff] rounded text-xs hover:bg-[#dde4ff] transition-all"><IconEdit /> 编辑</button>
-                              <button onClick={() => handleDeleteTool(tool.id)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> 删除</button>
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-[#eef2ff] text-[#4f6fff] rounded text-xs hover:bg-[#dde4ff] transition-all"><IconEdit /> {t('编辑')}</button>
+                              <button onClick={() => handleDeleteTool(tool.id)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> {t('删除')}</button>
                             </div>
                           </td>
                         </tr>
@@ -377,47 +393,47 @@ export default function AdminPage() {
           {section === 'users' && (
             <div className="bg-white rounded-xl border border-[#e5e7eb] overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#f0f0f0]">
-                <h2 className="font-semibold text-gray-800">用户列表 <span className="text-gray-400 font-normal text-sm ml-1">({userList.length})</span></h2>
+                <h2 className="font-semibold text-gray-800">{t('用户列表')} <span className="text-gray-400 font-normal text-sm ml-1">({userList.length})</span></h2>
               </div>
               {/* Filter */}
               <div className="flex items-center gap-2 px-5 py-3 border-b border-[#f0f0f0] bg-[#fafbfc] flex-wrap">
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><IconSearch /></span>
-                  <input value={userFilter.nickname} onChange={e => setUserFilter(p => ({ ...p, nickname: e.target.value }))} placeholder="昵称..."
+                  <input value={userFilter.nickname} onChange={e => setUserFilter(p => ({ ...p, nickname: e.target.value }))} placeholder={t('昵称...')}
                     className="w-32 h-9 pl-9 pr-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400" />
                 </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><IconMail /></span>
-                  <input value={userFilter.email} onChange={e => setUserFilter(p => ({ ...p, email: e.target.value }))} placeholder="邮箱..."
+                  <input value={userFilter.email} onChange={e => setUserFilter(p => ({ ...p, email: e.target.value }))} placeholder={t('邮箱...')}
                     className="w-44 h-9 pl-9 pr-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400" />
                 </div>
                 <select value={userFilter.status} onChange={e => setUserFilter(p => ({ ...p, status: e.target.value }))}
                   className="h-9 px-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400">
-                  <option value="">全部状态</option>
-                  <option value="active">正常</option>
-                  <option value="disabled">已禁用</option>
+                  <option value="">{t('全部状态')}</option>
+                  <option value="active">{t('正常')}</option>
+                  <option value="disabled">{t('已禁用')}</option>
                 </select>
-                <button onClick={loadUsers} className="h-9 px-4 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-all">查询</button>
-                <button onClick={() => { setUserFilter({ nickname: '', email: '', status: '' }); setTimeout(loadUsers, 50) }} className="h-9 px-4 border border-[#e0e0e0] text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-all">重置</button>
+                <button onClick={() => loadUsers()} className="h-9 px-4 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-all">{t('查询')}</button>
+                <button onClick={() => { setUserFilter({ nickname: '', email: '', status: '' }); setTimeout(loadUsers, 50) }} className="h-9 px-4 border border-[#e0e0e0] text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-all">{t('重置')}</button>
               </div>
               {/* Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-[#f8f9fb] text-[#666] text-xs uppercase tracking-wider">
-                      <th className="text-left py-3 px-5 font-semibold">用户</th>
-                      <th className="text-left py-3 px-5 font-semibold">邮箱</th>
-                      <th className="text-left py-3 px-5 font-semibold">注册时间</th>
-                      <th className="text-center py-3 px-5 font-semibold">关注数</th>
-                      <th className="text-center py-3 px-5 font-semibold">收藏数</th>
-                      <th className="text-center py-3 px-5 font-semibold">仓库数</th>
-                      <th className="text-left py-3 px-5 font-semibold">状态</th>
-                      <th className="text-left py-3 px-5 font-semibold">操作</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('用户')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('邮箱')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('注册时间')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('关注数')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('收藏数')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('仓库数')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('状态')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('操作')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {userList.length === 0 ? (
-                      <tr><td colSpan={8} className="text-center py-10 text-gray-400">暂无数据</td></tr>
+                      <tr><td colSpan={8} className="text-center py-10 text-gray-400">{t('暂无数据')}</td></tr>
                     ) : userList.map((u: any) => (
                       <tr key={u.id} className="border-t border-[#f0f0f0] hover:bg-[#fafbfc]">
                         <td className="py-3 px-5">
@@ -433,17 +449,17 @@ export default function AdminPage() {
                         <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.repo_count || 0}</td>
                         <td className="py-3 px-5">
                           <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${u.status === 'disabled' ? 'bg-gray-100 text-gray-500' : 'bg-green-50 text-green-600'}`}>
-                            {u.status === 'disabled' ? '已禁用' : '正常'}
+                            {u.status === 'disabled' ? t('已禁用') : t('正常')}
                           </span>
                         </td>
                         <td className="py-3 px-5">
                           <div className="flex gap-1.5">
                             {u.status === 'disabled' ? (
-                              <button onClick={() => toggleUserStatus(u)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#ecfdf5] text-[#059669] rounded text-xs hover:bg-[#d1fae5] transition-all"><IconEnable /> 启用</button>
+                              <button onClick={() => toggleUserStatus(u)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#ecfdf5] text-[#059669] rounded text-xs hover:bg-[#d1fae5] transition-all"><IconEnable /> {t('启用')}</button>
                             ) : (
-                              <button onClick={() => toggleUserStatus(u)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fff7ed] text-[#d97a00] rounded text-xs hover:bg-[#ffedd5] transition-all"><IconDisable /> 禁用</button>
+                              <button onClick={() => toggleUserStatus(u)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fff7ed] text-[#d97a00] rounded text-xs hover:bg-[#ffedd5] transition-all"><IconDisable /> {t('禁用')}</button>
                             )}
-                            <button onClick={() => handleDeleteUser(u)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> 删除</button>
+                            <button onClick={() => handleDeleteUser(u)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> {t('删除')}</button>
                           </div>
                         </td>
                       </tr>
@@ -451,6 +467,11 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               </div>
+              {usersCursor && (
+                <div className="px-5 py-3 border-t border-[#f0f0f0] text-center">
+                  <button onClick={() => loadUsers(usersCursor)} disabled={usersLoading} className="h-8 px-4 text-sm text-blue-500 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50">{usersLoading ? t('加载中…') : t('加载更多')}</button>
+                </div>
+              )}
             </div>
           )}
 
@@ -458,49 +479,49 @@ export default function AdminPage() {
           {section === 'repos' && (
             <div className="bg-white rounded-xl border border-[#e5e7eb] overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#f0f0f0]">
-                <h2 className="font-semibold text-gray-800">仓库列表 <span className="text-gray-400 font-normal text-sm ml-1">({repoList.length})</span></h2>
+                <h2 className="font-semibold text-gray-800">{t('仓库列表')} <span className="text-gray-400 font-normal text-sm ml-1">({repoList.length})</span></h2>
               </div>
               {/* Filter */}
               <div className="flex items-center gap-2 px-5 py-3 border-b border-[#f0f0f0] bg-[#fafbfc] flex-wrap">
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><IconSearch /></span>
-                  <input value={repoFilter.search} onChange={e => setRepoFilter(p => ({ ...p, search: e.target.value }))} placeholder="仓库名称..."
+                  <input value={repoFilter.search} onChange={e => setRepoFilter(p => ({ ...p, search: e.target.value }))} placeholder={t('仓库名称...')}
                     className="w-36 h-9 pl-9 pr-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400" />
                 </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><IconMail /></span>
-                  <input value={repoFilter.ownerEmail} onChange={e => setRepoFilter(p => ({ ...p, ownerEmail: e.target.value }))} placeholder="创建人邮箱..."
+                  <input value={repoFilter.ownerEmail} onChange={e => setRepoFilter(p => ({ ...p, ownerEmail: e.target.value }))} placeholder={t('创建人邮箱...')}
                     className="w-44 h-9 pl-9 pr-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400" />
                 </div>
                 <select value={repoFilter.visibility} onChange={e => setRepoFilter(p => ({ ...p, visibility: e.target.value }))}
                   className="h-9 px-3 bg-white border border-[#e0e0e0] rounded-lg text-sm outline-none focus:border-blue-400">
-                  <option value="">全部类型</option>
-                  <option value="public">公开</option>
-                  <option value="private">私密</option>
-                  <option value="password">密码访问</option>
-                  <option value="hidden">已隐藏</option>
+                  <option value="">{t('全部类型')}</option>
+                  <option value="public">{t('公开')}</option>
+                  <option value="private">{t('私密')}</option>
+                  <option value="password">{t('密码访问')}</option>
+                  <option value="hidden">{t('已隐藏')}</option>
                 </select>
-                <button onClick={loadRepos} className="h-9 px-4 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-all">查询</button>
-                <button onClick={() => { setRepoFilter({ search: '', visibility: '', ownerEmail: '' }); setTimeout(loadRepos, 50) }} className="h-9 px-4 border border-[#e0e0e0] text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-all">重置</button>
+                <button onClick={() => loadRepos()} className="h-9 px-4 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-all">{t('查询')}</button>
+                <button onClick={() => { setRepoFilter({ search: '', visibility: '', ownerEmail: '' }); setTimeout(loadRepos, 50) }} className="h-9 px-4 border border-[#e0e0e0] text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-all">{t('重置')}</button>
               </div>
               {/* Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-[#f8f9fb] text-[#666] text-xs uppercase tracking-wider">
-                      <th className="text-left py-3 px-5 font-semibold">仓库名称</th>
-                      <th className="text-left py-3 px-5 font-semibold">类型</th>
-                      <th className="text-left py-3 px-5 font-semibold">创建人</th>
-                      <th className="text-left py-3 px-5 font-semibold">创建时间</th>
-                      <th className="text-center py-3 px-5 font-semibold">关注</th>
-                      <th className="text-center py-3 px-5 font-semibold">收藏</th>
-                      <th className="text-center py-3 px-5 font-semibold">链接</th>
-                      <th className="text-left py-3 px-5 font-semibold">操作</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('仓库名称')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('类型')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('创建人')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('创建时间')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('关注')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('收藏')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('链接')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('操作')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {repoList.length === 0 ? (
-                      <tr><td colSpan={8} className="text-center py-10 text-gray-400">暂无数据</td></tr>
+                      <tr><td colSpan={8} className="text-center py-10 text-gray-400">{t('暂无数据')}</td></tr>
                     ) : repoList.map((r: any) => (
                       <tr key={r.id} className="border-t border-[#f0f0f0] hover:bg-[#fafbfc]">
                         <td className="py-3 px-5">
@@ -522,10 +543,10 @@ export default function AdminPage() {
                             r.visibility === 'hidden' ? 'bg-red-50 text-red-500' :
                             'bg-gray-100 text-gray-500'
                           }`}>
-                            {r.visibility === 'public' ? <><IconGlobe /> 公开</> :
-                             r.visibility === 'password' ? <><IconLock /> 密码</> :
-                             r.visibility === 'hidden' ? <><IconEyeOff /> 隐藏</> :
-                             <><IconLock /> 私密</>}
+                            {r.visibility === 'public' ? <><IconGlobe /> {t('公开')}</> :
+                             r.visibility === 'password' ? <><IconLock /> {t('密码')}</> :
+                             r.visibility === 'hidden' ? <><IconEyeOff /> {t('隐藏')}</> :
+                             <><IconLock /> {t('私密')}</>}
                             {r.visibility === 'password' && r.password && <span className="ml-1 opacity-60">({r.password})</span>}
                           </span>
                         </td>
@@ -545,9 +566,9 @@ export default function AdminPage() {
                                   ? 'bg-[#ecfdf5] text-[#059669] hover:bg-[#d1fae5]'
                                   : 'bg-[#fff7ed] text-[#d97a00] hover:bg-[#ffedd5]'
                               }`}>
-                              {r.visibility === 'hidden' ? <><IconEye /> 显示</> : <><IconEyeOff /> 隐藏</>}
+                              {r.visibility === 'hidden' ? <><IconEye /> {t('显示')}</> : <><IconEyeOff /> {t('隐藏')}</>}
                             </button>
-                            <button onClick={() => handleDeleteRepo(r)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> 删除</button>
+                            <button onClick={() => handleDeleteRepo(r)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> {t('删除')}</button>
                           </div>
                         </td>
                       </tr>
@@ -555,6 +576,11 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               </div>
+              {reposCursor && (
+                <div className="px-5 py-3 border-t border-[#f0f0f0] text-center">
+                  <button onClick={() => loadRepos(reposCursor)} disabled={reposLoading} className="h-8 px-4 text-sm text-blue-500 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50">{reposLoading ? t('加载中…') : t('加载更多')}</button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -567,8 +593,8 @@ export default function AdminPage() {
           <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 p-6 w-full max-w-sm mx-4">
             <p className="text-sm text-gray-700 mb-6 leading-relaxed">{confirm.message}</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirm(null)} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-all">取消</button>
-              <button onClick={() => { confirm.onConfirm(); setConfirm(null) }} className="flex-1 h-10 rounded-lg bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-all">确认</button>
+              <button onClick={() => setConfirm(null)} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-all">{t('取消')}</button>
+              <button onClick={() => { confirm.onConfirm(); setConfirm(null) }} className="flex-1 h-10 rounded-lg bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-all">{t('确认')}</button>
             </div>
           </div>
         </div>
@@ -579,13 +605,13 @@ export default function AdminPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20" onClick={() => { setShowAddCat(false); setEditCat(null); setCatName('') }} />
           <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 p-6 w-full max-w-sm mx-4">
-            <h3 className="font-semibold text-gray-800 mb-4">{editCat ? '编辑分类' : '添加分类'}</h3>
-            <input value={catName} onChange={e => setCatName(e.target.value)} placeholder="分类名称" autoFocus
+            <h3 className="font-semibold text-gray-800 mb-4">{editCat ? t('编辑分类') : t('添加分类')}</h3>
+            <input value={catName} onChange={e => setCatName(e.target.value)} placeholder={t('分类名称')} autoFocus
               onKeyDown={e => { if (e.key === 'Enter') editCat ? handleUpdateCategory() : handleAddCategory() }}
               className="w-full h-11 px-4 mb-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
             <div className="flex gap-2">
-              <button onClick={() => { setShowAddCat(false); setEditCat(null); setCatName('') }} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">取消</button>
-              <button onClick={editCat ? handleUpdateCategory : handleAddCategory} className="flex-1 h-10 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600">确定</button>
+              <button onClick={() => { setShowAddCat(false); setEditCat(null); setCatName('') }} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">{t('取消')}</button>
+              <button onClick={editCat ? handleUpdateCategory : handleAddCategory} className="flex-1 h-10 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600">{t('确定')}</button>
             </div>
           </div>
         </div>
@@ -596,7 +622,7 @@ export default function AdminPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20" onClick={() => setShowAddTool(false)} />
           <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 p-6 w-full max-w-sm mx-4 max-h-[85vh] overflow-y-auto">
-            <h3 className="font-semibold text-gray-800 mb-4">添加链接</h3>
+            <h3 className="font-semibold text-gray-800 mb-4">{t('添加链接')}</h3>
             <div className="space-y-3">
               <div className="flex flex-col items-center gap-2 pb-2">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-sm overflow-hidden"
@@ -621,29 +647,29 @@ export default function AdminPage() {
                     const file = e.target.files?.[0]; if (!file) return
                     const reader = new FileReader(); reader.onload = () => setToolIcon(reader.result as string); reader.readAsDataURL(file)
                   }} />
-                  <button type="button" onClick={() => addToolFileRef.current?.click()} className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs hover:bg-blue-600">上传图标</button>
-                  {toolIcon && isImageIcon(toolIcon) && <button type="button" onClick={() => setToolIcon('')} className="text-xs text-red-400 hover:text-red-600">清除</button>}
+                  <button type="button" onClick={() => addToolFileRef.current?.click()} className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs hover:bg-blue-600">{t('上传图标')}</button>
+                  {toolIcon && isImageIcon(toolIcon) && <button type="button" onClick={() => setToolIcon('')} className="text-xs text-red-400 hover:text-red-600">{t('清除')}</button>}
                 </div>
               </div>
-              <input value={toolName} onChange={e => setToolName(e.target.value)} placeholder="名称" autoFocus
+              <input value={toolName} onChange={e => setToolName(e.target.value)} placeholder={t('名称')} autoFocus
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               <input value={toolUrl} onChange={e => {
                 setToolUrl(e.target.value); const u = e.target.value
                 if (!u) return; setFaviconLoading(true)
                 faviconCache.resolve(u).then(r => { if (r.icon_url) setToolIcon(r.icon_url.startsWith('http') ? r.icon_url : window.location.origin + r.icon_url) }).finally(() => setFaviconLoading(false))
-              }} placeholder="地址 (https://...)"
+              }} placeholder={t('地址 (https://...)')}
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-              <input value={toolDesc} onChange={e => setToolDesc(e.target.value)} placeholder="描述（选填）"
+              <input value={toolDesc} onChange={e => setToolDesc(e.target.value)} placeholder={t('描述（选填）')}
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               <select value={toolCatId} onChange={e => setToolCatId(e.target.value)}
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400">
-                <option value="">选择分类</option>
+                <option value="">{t('选择分类')}</option>
                 {catList.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={() => setShowAddTool(false)} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">取消</button>
-              <button onClick={handleAddTool} className="flex-1 h-10 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600">添加</button>
+              <button onClick={() => setShowAddTool(false)} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">{t('取消')}</button>
+              <button onClick={handleAddTool} className="flex-1 h-10 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600">{t('添加')}</button>
             </div>
           </div>
         </div>
@@ -654,7 +680,7 @@ export default function AdminPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20" onClick={() => { setEditTool(null); setToolName(''); setToolUrl(''); setToolDesc(''); setToolIcon(''); setToolCatId('') }} />
           <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 p-6 w-full max-w-sm mx-4 max-h-[85vh] overflow-y-auto">
-            <h3 className="font-semibold text-gray-800 mb-4">编辑链接</h3>
+            <h3 className="font-semibold text-gray-800 mb-4">{t('编辑链接')}</h3>
             <div className="space-y-3">
               <div className="flex flex-col items-center gap-2 pb-2">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-sm overflow-hidden"
@@ -672,29 +698,29 @@ export default function AdminPage() {
                     const file = e.target.files?.[0]; if (!file) return
                     const reader = new FileReader(); reader.onload = () => { setEditTool((prev: any) => ({ ...prev, icon: reader.result as string })); setToolIcon(reader.result as string) }; reader.readAsDataURL(file)
                   }} />
-                  <button type="button" onClick={() => editToolFileRef.current?.click()} className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs hover:bg-blue-600">上传图标</button>
-                  {toolIcon && isImageIcon(toolIcon) && <button type="button" onClick={() => setToolIcon('')} className="text-xs text-red-400 hover:text-red-600">清除</button>}
+                  <button type="button" onClick={() => editToolFileRef.current?.click()} className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs hover:bg-blue-600">{t('上传图标')}</button>
+                  {toolIcon && isImageIcon(toolIcon) && <button type="button" onClick={() => setToolIcon('')} className="text-xs text-red-400 hover:text-red-600">{t('清除')}</button>}
                 </div>
               </div>
-              <input value={toolName} onChange={e => setToolName(e.target.value)} placeholder="名称" autoFocus
+              <input value={toolName} onChange={e => setToolName(e.target.value)} placeholder={t('名称')} autoFocus
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               <input value={toolUrl} onChange={e => {
                 setToolUrl(e.target.value); const u = e.target.value
                 if (!u) return; setFaviconLoading(true)
                 faviconCache.resolve(u).then(r => { if (r.icon_url) setToolIcon(r.icon_url.startsWith('http') ? r.icon_url : window.location.origin + r.icon_url) }).finally(() => setFaviconLoading(false))
-              }} placeholder="地址"
+              }} placeholder={t('地址')}
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-              <input value={toolDesc} onChange={e => setToolDesc(e.target.value)} placeholder="描述"
+              <input value={toolDesc} onChange={e => setToolDesc(e.target.value)} placeholder={t('描述')}
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               <select value={toolCatId} onChange={e => setToolCatId(e.target.value)}
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400">
-                <option value="">选择分类</option>
+                <option value="">{t('选择分类')}</option>
                 {catList.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={() => { setEditTool(null); setToolName(''); setToolUrl(''); setToolDesc(''); setToolIcon(''); setToolCatId('') }} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">取消</button>
-              <button onClick={handleUpdateTool} className="flex-1 h-10 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600">保存</button>
+              <button onClick={() => { setEditTool(null); setToolName(''); setToolUrl(''); setToolDesc(''); setToolIcon(''); setToolCatId('') }} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">{t('取消')}</button>
+              <button onClick={handleUpdateTool} className="flex-1 h-10 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600">{t('保存')}</button>
             </div>
           </div>
         </div>

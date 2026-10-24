@@ -1,22 +1,49 @@
 // VERSION: cache-bust-20260728
  
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { motion } from 'motion/react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs } from './api'
+import { useT } from './i18n'
+import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, type WeatherData } from './api'
 import { gold } from './api'
 import { categories as defaultCategories, tools as defaultTools } from './data'
+import { useAutoLinkDescription } from './hooks/useAutoLinkDescription'
 import AuthModal from './components/AuthModal'
 import UserPanel from './components/UserPanel'
+import LinkPreviewHost, { scheduleLinkPreview, cancelLinkPreview } from './components/LinkPreview'
+import LinkDescriptionInput from './components/LinkDescriptionInput'
+import WallpaperManagerModal, { BUILTIN_WALLPAPERS } from './components/WallpaperManagerModal'
+import PanelStyleModal, { UI_FONTS } from './components/PanelStyleModal'
 import CreateRepoModal from './components/CreateRepoModal'
 import WelcomeModal from './components/WelcomeModal'
 import { HomeSkeleton } from './components/Skeleton'
 import {
  Search, Menu, X, Home, Heart, Compass, ChevronDown, Star, User, Plus, Box, Globe,
  FolderPlus, Layers, Link2, Puzzle, Cpu, Code, PenTool, Coffee, BookOpen, Briefcase, Flame, Sparkles, TrendingUp, TrendingDown,
-  Edit3, Trash2, ExternalLink, Camera, MoreVertical, Bell, CheckSquare, Gem, Lock,
+  Edit3, Trash2, ExternalLink, Camera, MoreVertical, CheckSquare, Gem, Lock, AlertTriangle, CalendarDays, Image as ImageIcon,
+  PanelLeftClose, PanelLeftOpen, Clock, Link2Off, Fish, Loader2, RefreshCw, Eye, EyeOff, CloudSun, MapPin, LogIn,
+  Folder, Bookmark, Grid3x3, LayoutGrid, Terminal, Database, Cloud, Server, Smartphone, HardDrive, Wifi, Rocket,
+  Wrench, Cog, Hammer, Package, Archive, ShoppingBag, ShoppingCart, CreditCard, Wallet, Coins, PieChart, Calculator,
+  Banknote, PiggyBank, Gamepad2, Music, Film, Tv, Headphones, Mic, Palette, Brush, GraduationCap, Newspaper, Mail,
+  MessageCircle, Users, Smile, Gift, Key, Fingerprint, Shield, Lightbulb, Zap, Leaf, TreePine, Sun, Moon, Plane,
+  Car, Bike, Map as MapIcon, Building2, Anchor, Utensils, Pill, Stethoscope, Dumbbell, Trophy, Medal, Target, Microscope,
+  Atom, Brain, Cat, Dog,
 } from 'lucide-react'
+import { CountdownWidgetCard, WidgetResizeHandle } from './components/CountdownWidget'
+import { WereadWidgetCard, WereadSetupModal } from './components/WereadWidget'
+import { ClockWidgetCard } from './components/ClockWidget'
+import { SearchWidgetCard } from './components/SearchWidget'
+import WeatherLayer from './components/weather/WeatherLayer'
+import { TodoWidgetCard } from './components/TodoWidget'
+import { WeatherWidgetCard } from './components/WeatherWidget'
+// 鱼缸懒加载：three.js 体积大，拆成独立 chunk，仅首次渲染鱼缸卡片时才下载（开关关闭时用户不会加载这段代码）
+const FishTankWidgetCard = lazy(() => import('./components/fishtank/FishTankWidget').then(m => ({ default: m.FishTankWidgetCard })))
+import DeadLinksModal from './components/DeadLinksModal'
+
+// ---------- 实验性组件开关（暂时下线：置 true 恢复） ----------
+const WEATHER_FX_ENABLED = false
+const FISHTANK_ENABLED = false
 
 type NavSection = 'home' | 'repos' | 'favorites' | 'bookmarks' | 'discover'
 
@@ -34,6 +61,18 @@ function faviconUrl(url: string): string {
 
 function isImageIcon(icon: string): boolean {
   return icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('//') || icon.startsWith('data:image') || icon.startsWith('/api/')
+}
+
+// 自动识别名称：GitHub 链接取最后一个路径段（仓库名），其余取域名（去 www、去 .xx 后缀）
+function guessNameFromUrl(u: string): string {
+  try {
+    const url = new URL(u)
+    if (/^(www\.)?github\.com$/i.test(url.hostname)) {
+      const seg = url.pathname.split('/').filter(Boolean).pop()
+      if (seg) return seg.replace(/\.git$/i, '')
+    }
+    return url.hostname.replace(/^www\./, '').replace(/\.[^.]+$/, '')
+  } catch { return '' }
 }
 
 function iconFontSize(text: string | undefined, size: 'large' | 'small' = 'large'): string {
@@ -91,22 +130,36 @@ function saveOrder(key: string, list: any[]) {
 }
 
 // ---------- stale-while-revalidate 数据缓存 ----------
-// 打开页面先用本地缓存立即渲染，后台拉最新数据，有变化才更新界面
-function readSwr(key: string): any | null {
+// 打开页面先用本地缓存立即渲染；TTL 内视为新鲜、不再发请求，超时后台拉最新，有变化才更新界面
+const SWR_TTL = 5 * 60 * 1000
+
+// 缓存按登录态隔离：token 变化（登录/登出/换号）后旧缓存自动失效
+function swrUid(): string {
+  const tk = getToken()
+  if (!tk) return 'anon'
+  let h = 5381
+  for (let i = 0; i < tk.length; i++) h = ((h << 5) + h + tk.charCodeAt(i)) | 0
+  return 'u' + String(h)
+}
+
+function readSwr(key: string): { data: any, fresh: boolean } | null {
   try {
     const raw = localStorage.getItem(`swr:${key}`)
-    return raw ? JSON.parse(raw).data ?? null : null
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed.uid !== swrUid()) return null
+    return { data: parsed.data ?? null, fresh: Date.now() - (parsed.ts || 0) < SWR_TTL }
   } catch { return null }
 }
 
 function writeSwr(key: string, data: any) {
-  try { localStorage.setItem(`swr:${key}`, JSON.stringify({ ts: Date.now(), data })) } catch {}
+  try { localStorage.setItem(`swr:${key}`, JSON.stringify({ ts: Date.now(), uid: swrUid(), data })) } catch {}
 }
 
 // revalidate：总是更新缓存；数据与缓存不同才触发界面更新（避免无意义重渲染）
-function swrApply(key: string, cached: any, data: any, apply: (d: any) => void) {
+function swrApply(key: string, cached: { data: any } | null, data: any, apply: (d: any) => void) {
   writeSwr(key, data)
-  if (JSON.stringify(data) !== JSON.stringify(cached)) apply(data)
+  if (JSON.stringify(data) !== JSON.stringify(cached?.data)) apply(data)
 }
 
 // 首页分类数据 → 渲染数据（含本地排序和默认兜底）
@@ -118,6 +171,7 @@ function applyCatsData(data: any) {
 }
 
 export default function App() {
+  const t = useT()
   const { user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
 
@@ -145,7 +199,22 @@ export default function App() {
   // Auth modals
   const [showAuth, setShowAuth] = useState(false)
   const [showUserPanel, setShowUserPanel] = useState(false)
+  const [showWallpaperManager, setShowWallpaperManager] = useState(false)
+  const [showPanelStyle, setShowPanelStyle] = useState(false)
   const [showCreateRepo, setShowCreateRepo] = useState(false)
+  const [authErrorMsg, setAuthErrorMsg] = useState('')
+
+  // Google 登录失败回跳：URL 带 auth_error，弹出登录框并展示错误
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const err = url.searchParams.get('auth_error')
+    if (err) {
+      url.searchParams.delete('auth_error')
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash)
+      setAuthErrorMsg(err)
+      setShowAuth(true)
+    }
+  }, [])
 
   // Welcome modal — 未登录用户首次进入网站 3 秒后展示，仅展示 1 次；已登录用户不展示
   const [showWelcome, setShowWelcome] = useState(false)
@@ -168,36 +237,57 @@ export default function App() {
   // Data — 缓存优先：首帧直接用上次缓存渲染，后台再校验更新
   const [categoryList, setCategoryList] = useState<any[]>(() => {
     const cached = readSwr('home:cats')
-    return cached ? applyCatsData(cached) : []
+    return cached ? applyCatsData(cached.data) : []
   })
   const [toolList, setToolList] = useState<any[]>(() => {
     const cached = readSwr('home:tools')
-    return cached && cached.length > 0 ? cached : []
+    return (cached?.data?.length ?? 0) > 0 ? cached.data : []
   })
-  const [homeLoading, setHomeLoading] = useState(() => {
-    try {
-      return !(localStorage.getItem('swr:home:cats') && localStorage.getItem('swr:home:tools'))
-    } catch { return true }
-  })
-  const [discoverData, setDiscoverData] = useState<any[]>([])
+  // 链接失效检测（首页打开时触发，后端 24h 内查过的自动跳过）
+  const [deadLinks, setDeadLinks] = useState<any[]>([])
+  const [showDeadLinks, setShowDeadLinks] = useState(false)
+  const [removingDead, setRemovingDead] = useState(false)
+  const [homeLoading, setHomeLoading] = useState(() => !(readSwr('home:cats') && readSwr('home:tools')))
+  const [discoverData, setDiscoverData] = useState<any[]>(() => readSwr('discover:columns')?.data || [])
   const [userRepos, setUserRepos] = useState<any[]>([])
   const [followedRepos, setFollowedRepos] = useState<any[]>([])
   const [bookmarkedRepos, setBookmarkedRepos] = useState<any[]>([])
-  const [publicRepos, setPublicRepos] = useState<any[]>([])
+  const [publicRepos, setPublicRepos] = useState<any[]>(() => readSwr('discover:repos')?.data || [])
   const [discoverSort, setDiscoverSort] = useState<string>('followers')
 
   // Home page editor state
   const [showCreateCat, setShowCreateCat] = useState(false)
   const [parentCatId, setParentCatId] = useState('')
   const [newCatName, setNewCatName] = useState('')
+  const [newCatIcon, setNewCatIcon] = useState('')
   const [newCatPassword, setNewCatPassword] = useState('')
   const [newCatCats, setNewCatCats] = useState<string[]>([])
  const [newCatInput, setNewCatInput] = useState('')
   // Widget state
   const [widgetList, setWidgetList] = useState<any[]>(() => {
-    try { return JSON.parse(localStorage.getItem('widgets') || '[]') } catch { return [] }
+    try { return JSON.parse(localStorage.getItem('widgets') || '[]') as any[] } catch { return [] }
   })
+  // 倒计时共享事项池：所有倒计时组件实例共用一套数据（删除组件不影响数据，重新添加即恢复展示）
+  const [countdownEvents, setCountdownEvents] = useState<any[]>(() => {
+    try { return JSON.parse(localStorage.getItem('countdown_events') || '[]') as any[] } catch { return [] }
+  })
+  // 最新共享池引用：供不带 countdownEvents 依赖的保存点使用，防止漏带字段被服务端整列清空
+  const countdownEventsRef = useRef<any[]>([])
+  countdownEventsRef.current = countdownEvents
+  const freqDragIdx = useRef<number | null>(null)
   const [showWidgetSelector, setShowWidgetSelector] = useState(false)
+  // 倒计时组件：直接选分类创建空组件（事项后续在卡片内添加）
+  const [showCountdownCategorySelect, setShowCountdownCategorySelect] = useState(false)
+  const [showTodoCategorySelect, setShowTodoCategorySelect] = useState(false)
+  // 仿真鱼缸组件：选分类创建（预置 3 条鱼，后续在卡片内添加）
+  const [showFishtankCategorySelect, setShowFishtankCategorySelect] = useState(false)
+  // 天气卡片组件：选分类创建（默认 3 卡，创建后先选城市/自动定位）
+  const [showWeatherCardCategorySelect, setShowWeatherCardCategorySelect] = useState(false)
+  const [widgetEditTarget, setWidgetEditTarget] = useState<any>(null)
+  // 微信读书组件：新建流程先配置 Key（已配置则跳过）再选分类
+  const [showWereadSetup, setShowWereadSetup] = useState(false)
+  const [pendingWeread, setPendingWeread] = useState(false)
+  const [widgetContextMenu, setWidgetContextMenu] = useState<{ x: number; y: number; widget: any } | null>(null)
   const [showStockSearch, setShowStockSearch] = useState(false)
   const [stockSearchQuery, setStockSearchQuery] = useState('')
   const [stockSearchResults, setStockSearchResults] = useState<any[]>([])
@@ -208,22 +298,123 @@ export default function App() {
  const [showGoldCategorySelect, setShowGoldCategorySelect] = useState(false)
  const [editCatId, setEditCatId] = useState<string | null>(null)
   const [editCatName, setEditCatName] = useState('')
+  const [editCatIcon, setEditCatIcon] = useState('')
   const [editCatPassword, setEditCatPassword] = useState('')
   const [catContextMenu, setCatContextMenu] = useState<{ x: number; y: number; cat: any } | null>(null)
   // Home page blank area right-click menu
   const [homeContextMenu, setHomeContextMenu] = useState<{ x: number; y: number } | null>(null)
+
+  // 壁纸：'' = 默认渐变背景；'/wallpapers/wN.jpg' = 内置；'user:<id>' = 用户上传（走鉴权 blob URL）
+  const [wallpaper, setWallpaper] = useState(() => localStorage.getItem('wallpaper') || '')
+  const [wallpaperHidden, setWallpaperHidden] = useState(false)
+  const wallpaperTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // user:<id> 需要鉴权取回 blob URL 后才能真正显示
+  const [resolvedUrl, setResolvedUrl] = useState(() => {
+    const w = localStorage.getItem('wallpaper') || ''
+    return w.startsWith('user:') ? '' : w
+  })
+  useEffect(() => {
+    let cancelled = false
+    if (!wallpaper || !wallpaper.startsWith('user:')) { setResolvedUrl(wallpaper); return }
+    getWallpaperUrl(wallpaper.slice(5)).then(url => { if (!cancelled) setResolvedUrl(url) })
+    return () => { cancelled = true }
+  }, [wallpaper])
+  // 切换壁纸（统一入口：淡出 400ms → 预加载 → 淡入），选择或随机都走这里
+  const applyWallpaper = (next: string) => {
+    setWallpaperHidden(true)
+    if (wallpaperTimer.current) clearTimeout(wallpaperTimer.current)
+    wallpaperTimer.current = setTimeout(async () => {
+      if (!next) {
+        setWallpaper(''); localStorage.setItem('wallpaper', '')
+        setResolvedUrl(''); setWallpaperHidden(false)
+        return
+      }
+      let url = next
+      if (next.startsWith('user:')) {
+        url = await getWallpaperUrl(next.slice(5))
+        if (!url) { setWallpaperHidden(false); return }
+      }
+      const img = new Image() // 预加载完成后再淡入，避免闪半张图
+      img.onload = () => { setWallpaper(next); localStorage.setItem('wallpaper', next); setWallpaperHidden(false) }
+      img.onerror = () => setWallpaperHidden(false)
+      img.src = url
+    }, 400)
+  }
+  // 用户上传的壁纸列表（登录后加载；右键随机切换的池子 = 内置 + 我的）
+  const [userWallpapers, setUserWallpapers] = useState<any[]>([])
+  const loadUserWallpapers = useCallback(() => {
+    wallpapersApi.list().then((rows: any[]) => setUserWallpapers(rows || [])).catch(() => {})
+  }, [])
+  useEffect(() => { if (user) loadUserWallpapers() }, [user?.id, loadUserWallpapers])
+  const changeWallpaper = () => {
+    const pool = [...BUILTIN_WALLPAPERS, ...userWallpapers.map((w: any) => `user:${w.id}`)].filter(w => w !== wallpaper)
+    if (pool.length) applyWallpaper(pool[Math.floor(Math.random() * pool.length)])
+  }
+  // 自动切换壁纸：wallpaperAuto 为间隔秒数（0 = 关闭），localStorage 持久化
+  const [wallpaperAuto, setWallpaperAuto] = useState(() => parseInt(localStorage.getItem('wallpaper_auto') || '0', 10) || 0)
+  const setAutoSeconds = (s: number) => { setWallpaperAuto(s); localStorage.setItem('wallpaper_auto', String(s)) }
+  useEffect(() => {
+    if (!wallpaperAuto) return
+    const t = setInterval(changeWallpaper, wallpaperAuto * 1000)
+    return () => clearInterval(t)
+  }, [wallpaperAuto, wallpaper, userWallpapers])
+
+  // 面板样式：侧边栏展开/收起（localStorage 持久化）；磨砂大背景已下线，分类内容默认直接平铺
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebar_collapsed') === '1')
+  const toggleSidebar = (v: boolean) => {
+    setSidebarCollapsed(v); localStorage.setItem('sidebar_collapsed', v ? '1' : '0')
+    // 展开侧边栏时卡片默认展示（联动退出专注模式）
+    if (!v) { setFocusMode(false); localStorage.setItem('focus_mode', '0') }
+  }
+  // 常用工具行数（必须是 3 的倍数，默认 3 行）
+  const [freqRows, setFreqRows] = useState(() => {
+    const n = parseInt(localStorage.getItem('freq_rows') || '3', 10)
+    return Number.isFinite(n) && n >= 3 && n % 3 === 0 ? n : 3
+  })
+  const setFreqRowsPersist = (n: number) => { if (n % 3 !== 0 || n < 3) return; setFreqRows(n); localStorage.setItem('freq_rows', String(n)) }
+  // 卡片展示样式：standard = icon+名称+描述；minimal = 仅圆角图标
+  const [cardStyle, setCardStyle] = useState<'standard' | 'minimal'>(() => (localStorage.getItem('card_style') === 'minimal' ? 'minimal' : 'standard'))
+  const setCardStylePersist = (v: 'standard' | 'minimal') => { setCardStyle(v); localStorage.setItem('card_style', v) }
+  // 滚动时固定时间/搜索框（sticky 置顶，默认开）
+  const [stickyTop, setStickyTop] = useState(() => localStorage.getItem('sticky_top_widgets') !== '0')
+  const setStickyTopPersist = (v: boolean) => { setStickyTop(v); localStorage.setItem('sticky_top_widgets', v ? '1' : '0') }
+  // CRT 壁纸效果（扫描线 + 暗角 + 轻微闪烁，默认关）
+  const [crtEffect, setCrtEffect] = useState(() => localStorage.getItem('crt_effect') === '1')
+  const setCrtEffectPersist = (v: boolean) => { setCrtEffect(v); localStorage.setItem('crt_effect', v ? '1' : '0') }
+  // 界面字体（面板样式切换，localStorage 持久化；空 = 默认系统字体栈）
+  const [uiFont, setUiFont] = useState(() => localStorage.getItem('ui_font') || '')
+  useLayoutEffect(() => {
+    const f = UI_FONTS.find(f => f.id === uiFont)
+    if (f?.family) document.documentElement.style.setProperty('--app-font', `'${f.family}'`)
+    else document.documentElement.style.removeProperty('--app-font')
+  }, [uiFont])
+  const setUiFontPersist = (id: string) => { setUiFont(id); localStorage.setItem('ui_font', id) }
+  // 链接卡片网格：极简模式用固定 80px 轨道（auto-fill），任何屏宽都是严格 1:1 方块；justify-between 把排不满一轨的余量摊进横向间距（行始终撑满容器）；标准模式列数/间距不变
+  const toolGridCols = cardStyle === 'minimal' ? 'grid-cols-[repeat(auto-fill,80px)] gap-x-5 gap-y-3 justify-between' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3'
 
   // Home page tool state
   const [showAddTool, setShowAddTool] = useState(false)
   const [addToolCat, setAddToolCat] = useState('')
   const [addToolName, setAddToolName] = useState('')
   const [addToolUrl, setAddToolUrl] = useState('')
-  const [addToolDesc, setAddToolDesc] = useState('')
+  const {
+    description: addToolDesc,
+    setDescription: setAddToolDesc,
+    loading: addToolDescLoading,
+    fetchDescription: fetchAddToolDesc,
+    scheduleFetch: scheduleAddToolDesc,
+    reset: resetAddToolDesc,
+  } = useAutoLinkDescription()
   const [addToolIcon, setAddToolIcon] = useState('')
   const [addToolTextIcon, setAddToolTextIcon] = useState('')
   const [addToolColor, setAddToolColor] = useState(Math.floor(Math.random() * 16))
   const [addToolPassword, setAddToolPassword] = useState('')
   const [addToolCatError, setAddToolCatError] = useState('')
+  const [addToolDups, setAddToolDups] = useState<any[]>([])
+  const [addToolDupType, setAddToolDupType] = useState<'exact' | 'domain'>('exact')
+  const [addToolIconSrc, setAddToolIconSrc] = useState<'auto' | 'upload' | 'text'>('auto')
+  const [addToolRefreshing, setAddToolRefreshing] = useState(false)
+  const addToolDupTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const addToolFileRef = useRef<HTMLInputElement>(null)
   const [editTool, setEditTool] = useState<any>(null)
   const [editToolTextIcon, setEditToolTextIcon] = useState('')
@@ -256,19 +447,12 @@ export default function App() {
   const catPwdRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [linkPwdError, setLinkPwdError] = useState('')
 
-  // Notifications
+  // Notifications（通知 UI 已移入 UserPanel，这里仅保留数据与未读数）
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const [showNotifications, setShowNotifications] = useState(false)
-  const notifPanelRef = useRef<HTMLDivElement>(null)
-  const notifBtnRef = useRef<HTMLButtonElement>(null)
 
   // Todos
   const [todoList, setTodoList] = useState<any[]>([])
-  const [showTodos, setShowTodos] = useState(false)
-  const todoPanelRef = useRef<HTMLDivElement>(null)
-  const todoBtnRef = useRef<HTMLButtonElement>(null)
-  const [newTodo, setNewTodo] = useState('')
 
   const fetchNotifications = useCallback(() => {
     if (!user) return
@@ -297,37 +481,271 @@ export default function App() {
   }, [user])
 
   const incompleteTodoCount = useMemo(() => todoList.filter(t => !t.is_completed).length, [todoList])
-  const todoBadge = incompleteTodoCount > 99 ? '99+' : incompleteTodoCount > 0 ? String(incompleteTodoCount) : ''
 
-  const handleAddTodo = async () => {
-    if (!newTodo.trim()) return
-    const todo = await todosApi.create(newTodo.trim())
-    setTodoList(prev => [todo, ...prev])
-   setNewTodo('')
+  // 搜索框默认展示：无真实搜索组件且未手动删除时渲染虚拟组件（右键删除写标记）；渠道本地记忆
+  const [searchWidgetRemoved, setSearchWidgetRemoved] = useState(() => localStorage.getItem('search_widget_removed') === '1')
+  // 未登录虚拟时钟的删除标记（登录后不影响用户自己的组件配置）
+  const [clockWidgetRemoved, setClockWidgetRemoved] = useState(() => localStorage.getItem('clock_widget_removed') === '1')
+  // 专注模式：只展示时间+搜索框+壁纸（localStorage 持久化）
+  const [focusMode, setFocusMode] = useState(() => localStorage.getItem('focus_mode') === '1' && localStorage.getItem('sidebar_collapsed') === '1')
+  // 退出专注模式的入场动画标记：卡片自底部上推、时间/搜索框上移（短暂挂类后移除）
+  const [cardsEnter, setCardsEnter] = useState(false)
+  const toggleFocusMode = () => {
+    const next = !focusMode
+    setFocusMode(next)
+    localStorage.setItem('focus_mode', next ? '1' : '0')
+    if (next) {
+      // 隐藏卡片必须配合收起侧边栏（展开侧边栏时卡片默认展示）
+      setSidebarCollapsed(true); localStorage.setItem('sidebar_collapsed', '1')
+    } else {
+      setCardsEnter(true)
+      setTimeout(() => setCardsEnter(false), 800)
+    }
+  }
+  // 首页「滚动固定」模式：时间/搜索框为固定顶区，卡片仅在下方独立滚动区内滚动（不会进入顶区）
+  const homeSticky = stickyTop && activeNav === 'home' && !focusMode && !homeLoading
+
+ // 待办组件添加：选择分类或常用工具
+ const confirmAddTodo = (target: string) => {
+   const isFreq = target === '__frequent__'
+   void appendWidget({ id: `todo-${Date.now()}`, type: 'todo', name: '待办事项', height: 2, ...(isFreq ? { inFrequent: true } : { category_id: target }) })
+   setShowTodoCategorySelect(false)
  }
- const confirmAddStock = (result: any, categoryId: string) => {
+ // 添加组件：先拉取服务端最新列表按 id 合并（多页面/设备同时使用时防整表覆盖丢组件），再追加新组件
+ const appendWidget = async (newWidget: any) => {
+   let base = widgetList
+   try {
+     const remote = await userPrefs.load()
+     const remoteWidgets: any[] = remote.widgets || []
+     if (remoteWidgets.length > 0) {
+       const ids = new Set(base.map((w: any) => w.id))
+       base = [...remoteWidgets.filter((w: any) => !ids.has(w.id)), ...base]
+     }
+   } catch {}
+   setWidgetList([...base, newWidget])
+ }
+ // ---------- 壁纸天气特效 ----------
+ // weather widget 条目（type:'weather'）不渲染卡片，只驱动全屏天气效果层
+ const weatherWidget = widgetList.find((w: any) => w.type === 'weather')
+ const weatherCity = weatherWidget?.city as { name: string; lat: number; lon: number } | undefined
+ const [weatherData, setWeatherData] = useState<WeatherData | null>(null)
+ const [weatherBusy, setWeatherBusy] = useState(false)
+
+ // 自动定位：浏览器 Geolocation（需授权）→ Cloudflare IP 定位兜底
+ const locateWeather = async (): Promise<{ name: string; lat: number; lon: number } | null> => {
+   setWeatherBusy(true)
+   const fromGeo = await new Promise<any>((resolve) => {
+     if (!navigator.geolocation) return resolve(null)
+     navigator.geolocation.getCurrentPosition(
+       (p) => resolve({ name: '当前位置', lat: p.coords.latitude, lon: p.coords.longitude }),
+       () => resolve(null),
+       { timeout: 8000, maximumAge: 600000 },
+     )
+   })
+   let loc = fromGeo
+   if (!loc) {
+     try {
+       const r = await weatherApi.locate()
+       loc = { name: r.city || '当前位置', lat: r.lat, lon: r.lon }
+     } catch {}
+   }
+   setWeatherBusy(false)
+   return loc
+ }
+
+ const addWeatherFx = async () => {
+   const loc = await locateWeather()
+   if (!loc) { alert(t('无法获取位置，请检查定位权限')); return }
+   void appendWidget({ id: 'weather', type: 'weather', name: '天气', city: loc })
+ }
+ const reLocateWeather = async () => {
+   if (!weatherWidget) return
+   const loc = await locateWeather()
+   if (!loc) { alert(t('无法获取位置，请检查定位权限')); return }
+   updateWidget(weatherWidget.id, { city: loc })
+ }
+ const removeWeatherFx = () => {
+   setWidgetList((list: any[]) => list.filter((w) => w.type !== 'weather'))
+ }
+
+ // 手动更换地区：防抖搜索城市 → 选择后写回目标（'fx'=天气特效 widget，其他=天气卡片 widget id）
+ const [showWeatherCitySearch, setShowWeatherCitySearch] = useState(false)
+ const [weatherCityTarget, setWeatherCityTarget] = useState<string>('fx')
+ const [weatherQuery, setWeatherQuery] = useState('')
+ const [weatherResults, setWeatherResults] = useState<{ name: string; region: string; lat: number; lon: number }[]>([])
+ const [weatherSearching, setWeatherSearching] = useState(false)
+
+ useEffect(() => {
+   if (!showWeatherCitySearch) return
+   const q = weatherQuery.trim()
+   if (!q) { setWeatherResults([]); return }
+   const timer = setTimeout(() => {
+     setWeatherSearching(true)
+     weatherApi.search(q)
+       .then((r) => setWeatherResults(r.results || []))
+       .catch(() => setWeatherResults([]))
+       .finally(() => setWeatherSearching(false))
+   }, 350)
+   return () => clearTimeout(timer)
+ }, [weatherQuery, showWeatherCitySearch])
+
+ const pickWeatherCity = (c: { name: string; lat: number; lon: number }) => {
+   if (weatherCityTarget && weatherCityTarget !== 'fx') {
+     // 天气卡片组件：写回卡片实例
+     updateWidget(weatherCityTarget, { city: { name: c.name, lat: c.lat, lon: c.lon } })
+   } else if (weatherWidget) {
+     updateWidget(weatherWidget.id, { city: { name: c.name, lat: c.lat, lon: c.lon } })
+   }
+   setShowWeatherCitySearch(false)
+   setWeatherQuery('')
+   setWeatherResults([])
+ }
+
+ // 30 分钟轮询天气；回到前台立即刷新
+ useEffect(() => {
+   if (!WEATHER_FX_ENABLED || !weatherCity || !user) { setWeatherData(null); return }
+   let alive = true
+   const fetchWx = () => {
+     weatherApi.get(weatherCity.lat, weatherCity.lon)
+       .then((d) => { if (alive) setWeatherData(d) })
+       .catch(() => {})
+   }
+   fetchWx()
+   const timer = setInterval(fetchWx, 30 * 60 * 1000)
+   const onVis = () => { if (!document.hidden) fetchWx() }
+   document.addEventListener('visibilitychange', onVis)
+   return () => { alive = false; clearInterval(timer); document.removeEventListener('visibilitychange', onVis) }
+ }, [weatherCity?.lat, weatherCity?.lon, user])
+ // ---------- 天气特效 end ----------
+ const confirmAddStock = (result: any, target: string) => {
+    const isFreq = target === '__frequent__'
     const newWidget = {
       id: `stock-${Date.now()}`,
       type: 'stock',
       symbol: result.symbol,
       name: result.shortname || result.symbol,
-      category_id: categoryId,
+      ...(isFreq ? { inFrequent: true } : { category_id: target }),
     }
-    setWidgetList(prev => [...prev, newWidget])
+    void appendWidget(newWidget)
     setShowStockSearch(false)
     setStockSearchQuery('')
     setStockSearchResults([])
    setPendingStock(null)
 }
- const confirmAddGold = (categoryId: string) => {
+ const confirmAddGold = (target: string) => {
+    const isFreq = target === '__frequent__'
     const newWidget = {
       id: `gold-${Date.now()}`,
       type: 'gold',
       name: '黄金价格',
-      category_id: categoryId,
+      ...(isFreq ? { inFrequent: true } : { category_id: target }),
     }
-    setWidgetList(prev => [...prev, newWidget])
+    void appendWidget(newWidget)
     setShowGoldCategorySelect(false)
+ }
+ // 倒计时组件：直接创建空组件（事项后续在卡片内添加）
+ const confirmAddCountdown = (target: string) => {
+   const isFreq = target === '__frequent__'
+   const newWidget = {
+     id: `countdown-${Date.now()}`,
+     type: 'countdown',
+     name: '倒计时',
+     height: 1,
+     ...(isFreq ? { inFrequent: true } : { category_id: target }),
+   }
+   void appendWidget(newWidget)
+   setShowCountdownCategorySelect(false)
+ }
+
+ // 仿真鱼缸组件：预置 1 条锦鲤 + 2 条斑马鱼，后续在卡片内加鱼/换缸/喂食
+ const confirmAddFishtank = (target: string) => {
+   const isFreq = target === '__frequent__'
+   const mkFish = (species: string) => ({
+     id: `fk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+     species,
+     size: 0.85 + Math.random() * 0.3,
+   })
+   const newWidget = {
+     id: `fishtank-${Date.now()}`,
+     type: 'fishtank',
+     name: '仿真鱼缸',
+     height: 3,
+     tankStyle: 'classic',
+     fish: [mkFish('koi'), mkFish('zebrafish'), mkFish('zebrafish')],
+     ...(isFreq ? { inFrequent: true } : { category_id: target }),
+   }
+   void appendWidget(newWidget)
+   setShowFishtankCategorySelect(false)
+ }
+
+ // 天气卡片组件：默认 3 卡，创建后卡片内选城市/自动定位
+ const confirmAddWeatherCard = (target: string) => {
+   const isFreq = target === '__frequent__'
+   const newWidget = {
+     id: `weathercard-${Date.now()}`,
+     type: 'weathercard',
+     name: '天气',
+     height: 3,
+     ...(isFreq ? { inFrequent: true } : { category_id: target }),
+   }
+   void appendWidget(newWidget)
+   setShowWeatherCardCategorySelect(false)
+ }
+
+ // 右键「修改分类」：移动组件到其他分类或常用工具
+ const applyWidgetMove = (target: string) => {
+   if (!widgetEditTarget) return
+   const isFreq = target === '__frequent__'
+   updateWidget(widgetEditTarget.id, isFreq
+     ? { inFrequent: true, category_id: undefined }
+     : { inFrequent: false, category_id: target })
+   setWidgetEditTarget(null)
+ }
+
+ // 微信读书组件：已配置 Key 直接选分类，否则先配置
+ const startAddWeread = async () => {
+   setShowWidgetSelector(false)
+   try {
+     const cfg = await weread.config.get()
+     if (cfg.configured) { setPendingWeread(true); return }
+   } catch {}
+   setShowWereadSetup(true)
+ }
+
+ // 微信读书组件：选分类创建（数据在服务端按账号共享，删除组件不影响已同步笔记）
+ const confirmAddWeread = (target: string) => {
+   const isFreq = target === '__frequent__'
+   const newWidget = {
+     id: `weread-${Date.now()}`,
+     type: 'weread',
+     name: '微信读书笔记',
+     height: 1,
+     rotateHours: 24,
+     ...(isFreq ? { inFrequent: true } : { category_id: target }),
+   }
+   void appendWidget(newWidget)
+   setPendingWeread(false)
+   weread.sync().catch(() => {})
+ }
+
+ // 通用组件更新（高度 / 事项列表 / 常用工具标记等）
+ const updateWidget = (id: string, patch: any) => {
+   setWidgetList(prev => prev.map((w: any) => w.id === id ? { ...w, ...patch } : w))
+ }
+
+ const toggleWidgetFrequent = (id: string) => {
+   setWidgetList(prev => prev.map((w: any) => w.id === id ? { ...w, inFrequent: !w.inFrequent } : w))
+ }
+
+ // 常用工具内小组件拖动排序：把重排后的组件序列写回 widgetList（保持在原首个组件之前的位置）
+ const handleReorderFreqWidgets = (orderedFreq: any[]) => {
+   setWidgetList(prev => {
+     const freqIds = new Set(orderedFreq.map(w => w.id))
+     const firstIdx = prev.findIndex((w: any) => freqIds.has(w.id))
+     const rest = prev.filter((w: any) => !freqIds.has(w.id))
+     rest.splice(firstIdx === -1 ? rest.length : Math.min(firstIdx, rest.length), 0, ...orderedFreq)
+     return rest
+   })
  }
 const handleToggleTodo = async (id: string, is_completed: number) => {
     await todosApi.update(id, { is_completed: is_completed ? 0 : 1 })
@@ -364,7 +782,23 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     reader.readAsDataURL(file)
   }
 
-  const loadHomeData = useCallback(() => {
+  // 切换图标来源：清空当前图标，auto 模式下按网址重新抓取
+  const switchAddToolIconSrc = (m: 'auto' | 'upload' | 'text') => {
+    setAddToolIconSrc(m)
+    setAddToolIcon('')
+    if (addToolFileRef.current) addToolFileRef.current.value = ''
+    if (m === 'auto') {
+      const u = addToolUrl.trim()
+      if (!u) return
+      const fixed = /^https?:\/\//i.test(u) ? u : 'https://' + u
+      setAddToolRefreshing(true)
+      faviconCache.resolve(fixed).then((r) => {
+        if (r.icon_url) setAddToolIcon(r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url))
+      }).finally(() => setAddToolRefreshing(false))
+    }
+  }
+
+  const loadHomeData = useCallback((force = false) => {
     const cachedCats = readSwr('home:cats')
     const cachedTools = readSwr('home:tools')
     const applyTools = (data: any) => {
@@ -376,11 +810,12 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         text_color: '#FFFFFF',
       })))
     }
+    // TTL 内视为新鲜：跳过请求，避免每次打开首页都重新加载；写操作后 force=true 强制拉取最新并同步缓存
     // 后台 revalidate：有变化才更新界面
-    const catTask = categories.list().then(data => {
+    const catTask = (!force && cachedCats?.fresh) ? Promise.resolve() : categories.list().then(data => {
       swrApply('home:cats', cachedCats, data, (d) => setCategoryList(applyCatsData(d)))
     }).catch(() => { if (!cachedCats) setCategoryList(applyCatsData(null)) })
-    const toolTask = tools.list().then(data => {
+    const toolTask = (!force && cachedTools?.fresh) ? Promise.resolve() : tools.list().then(data => {
       swrApply('home:tools', cachedTools, data, applyTools)
     }).catch(() => { if (!cachedTools) applyTools(null) })
     Promise.all([catTask, toolTask]).finally(() => setHomeLoading(false))
@@ -388,28 +823,25 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
   useEffect(() => {
     loadHomeData()
-    discover.columns().then(setDiscoverData)
+    const cachedCols = readSwr('discover:columns')
+    if (cachedCols) setDiscoverData(cachedCols.data)
     const cachedDisc = readSwr('discover:repos')
-    if (cachedDisc) setPublicRepos(cachedDisc)
-    discover.repos().then(data => {
+    if (cachedDisc) setPublicRepos(cachedDisc.data)
+    // TTL 内不重新请求
+    if (!cachedCols?.fresh) discover.columns().then(data => {
+      swrApply('discover:columns', cachedCols, data, setDiscoverData)
+    }).catch(() => {})
+    if (!cachedDisc?.fresh) discover.repos().then(data => {
       swrApply('discover:repos', cachedDisc, data, setPublicRepos)
     }).catch(() => {})
   }, [loadHomeData])
 
-  // Click outside to close panels
+  // 搜索框渠道 ↔ 本地搜索模式同步（真实组件 channel / 虚拟组件 localStorage，刷新后恢复）
   useEffect(() => {
-    if (!showTodos && !showNotifications) return
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node
-      const inTodo = todoBtnRef.current?.contains(target) || todoPanelRef.current?.contains(target)
-      const inNotif = notifBtnRef.current?.contains(target) || notifPanelRef.current?.contains(target)
-      if (!inTodo && !inNotif) {
-        setShowTodos(false); setShowNotifications(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showTodos, showNotifications])
+    const sw = widgetList.find((w: any) => w.type === 'search')
+    const ch = sw ? (sw.channel as string) : (searchWidgetRemoved ? null : (localStorage.getItem('search_channel') || 'baidu'))
+    setSearchMode(ch === 'local' ? 'local' : 'web')
+  }, [widgetList, searchWidgetRemoved])
 
   // 拖拽排序后保存并刷新
   const handleReorderTools = useCallback((reorderedItems: any[]) => {
@@ -422,10 +854,10 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       rest.splice(firstIdx, 0, ...reorderedItems)
       setToolList(rest)
     }
-    // 同步到服务端，然后从服务端刷新确保一致
+    // 同步到服务端，然后从服务端刷新确保一致（force 同步缓存）
     tools.reorder(reorderedItems.map((t: any, i: number) => ({ id: t.id, sort_order: i })))
-      .then(() => loadHomeData())
-      .catch(() => loadHomeData())
+      .then(() => loadHomeData(true))
+      .catch(() => loadHomeData(true))
   }, [loadHomeData])
 
   const handleReorderCombined = useCallback((reorderedItems: any[]) => {
@@ -435,9 +867,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       itemOrderRef.current[catId] = reorderedItems.map((i: any) => i.id)
       localStorage.setItem('categoryItemOrder', JSON.stringify(itemOrderRef.current))
     }
-    // Separate tools from stock widgets
-    const reorderedTools = reorderedItems.filter((i: any) => !i.type || i.type !== 'stock')
-    const reorderedWidgets = reorderedItems.filter((i: any) => i.type === 'stock')
+    // Separate tools from widgets (stock / gold / countdown)
+    const reorderedTools = reorderedItems.filter((i: any) => !isWidgetItem(i))
+    const reorderedWidgets = reorderedItems.filter((i: any) => isWidgetItem(i))
     
     // Update tools
     if (reorderedTools.length > 0) {
@@ -450,7 +882,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         setToolList(rest)
       }
       tools.reorder(reorderedTools.map((t: any, i: number) => ({ id: t.id, sort_order: i })))
-        .catch(() => {})
+        .finally(() => loadHomeData(true))
     }
     
     // Update widgets: reorder in widgetList based on position in combined grid
@@ -470,7 +902,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       })
     }
     // Always sync itemOrder to server after any combined reorder
-    if (catId && user) userPrefs.save({ widgets: widgetList, itemOrder: itemOrderRef.current }).catch(() => {})
+    if (catId && user) userPrefs.save({ widgets: widgetList, itemOrder: itemOrderRef.current, countdownEvents: countdownEventsRef.current }).catch(() => {})
   }, [user, widgetList])
 
   // 跨分类移动链接卡片
@@ -489,10 +921,34 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     localStorage.setItem('categoryItemOrder', JSON.stringify(itemOrderRef.current))
     setToolList(prev => prev.map((t: any) => t.id === tool.id ? updatedTool : t))
     // 同步到服务端
-    tools.update(tool.id, { category_id: toCatId }).catch(() => {})
-    tools.reorder(targetItems.filter((i: any) => !isWidgetItem(i)).map((t: any, i: number) => ({ id: t.id, sort_order: i }))).catch(() => {})
-    if (user) userPrefs.save({ widgets: widgetList, itemOrder: itemOrderRef.current }).catch(() => {})
+    Promise.allSettled([
+      tools.update(tool.id, { category_id: toCatId }),
+      tools.reorder(targetItems.filter((i: any) => !isWidgetItem(i)).map((t: any, i: number) => ({ id: t.id, sort_order: i }))),
+    ]).then(() => loadHomeData(true))
+    if (user) userPrefs.save({ widgets: widgetList, itemOrder: itemOrderRef.current, countdownEvents: countdownEventsRef.current }).catch(() => {})
   }
+
+  // 分类网格容器级拖放（拖到空白格、未落在任何卡片上时触发）：
+  // 同分类内拖拽 → 移到序列末尾；跨分类拖链接 → 移入该分类
+  const gridContainerHandlers = (catId: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      const d = gridDragState
+      if (user && d?.item && (d.sourceKey === catId || !isWidgetItem(d.item))) e.preventDefault()
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!user) return
+      const d = gridDragState
+      if (!d?.item) return
+      e.preventDefault()
+      if (d.sourceKey === catId) {
+        const list = getCatItems(catId).filter((i: any) => i.id !== d.item.id)
+        list.push(d.item)
+        handleReorderCombined(list)
+      } else if (!isWidgetItem(d.item)) {
+        handleMoveToolToCategory(d.item, catId)
+      }
+    },
+  })
 
   // toolList 变化时同步 ref
   useEffect(() => { toolListRef.current = toolList }, [toolList])
@@ -550,23 +1006,45 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       return
     }
     localStorage.setItem('widgets', JSON.stringify(widgetList))
+    localStorage.setItem('countdown_events', JSON.stringify(countdownEvents))
     if (widgetList.length > 0) fetchStockQuotes().catch(() => {})
     if (widgetList.filter((w: any) => w.type === 'gold').length > 0) fetchGoldPrice().catch(() => {})
     // Only save to server after initial load from server has completed.
     // Without this guard, user change triggers save with stale widgetList=[].
-    if (initialLoadDone.current && user) userPrefs.save({ widgets: widgetList, itemOrder: itemOrderRef.current }).catch(() => {})
-  }, [widgetList, fetchStockQuotes, fetchGoldPrice, user])
+    if (initialLoadDone.current && user) userPrefs.save({ widgets: widgetList, itemOrder: itemOrderRef.current, countdownEvents }).catch(() => {})
+  }, [widgetList, countdownEvents, fetchStockQuotes, fetchGoldPrice, user])
+
+  // 退出登录/401 时清空本地组件缓存，避免串到同浏览器下一个登录的账号
+  useEffect(() => {
+    if (!user) {
+      setWidgetList([])
+      setCountdownEvents([])
+      localStorage.removeItem('widgets')
+      localStorage.removeItem('countdown_events')
+    }
+  }, [user])
 
   // Load widgets from server when user logs in
   useEffect(() => {
     if (!user) return
     userPrefs.load().then(data => {
       initialLoadDone.current = true
-      if (data.widgets?.length > 0) {
-        setWidgetList(data.widgets)
-      }
+      // 以服务器数据为准：为空也覆盖，避免本地残留组件串到新账号
+      setWidgetList(data.widgets || [])
       if (data.itemOrder && Object.keys(data.itemOrder).length > 0) {
         itemOrderRef.current = data.itemOrder
+      }
+      // 倒计时共享事项池：优先取服务端；为空则从旧版各组件实例的 events 一次性合并迁移（按 id 去重）
+      const serverEvents = data.countdownEvents || []
+      if (serverEvents.length > 0) {
+        setCountdownEvents(serverEvents)
+      } else {
+        const legacy = (data.widgets || []).filter((w: any) => w.type === 'countdown').flatMap((w: any) => w.events || [])
+        if (legacy.length > 0) {
+          const seen = new Set<string>()
+          const merged = legacy.filter((ev: any) => ev?.id && !seen.has(ev.id) && seen.add(ev.id))
+          setCountdownEvents(merged)
+        }
       }
     }).catch(() => { initialLoadDone.current = true })
   }, [user])
@@ -597,16 +1075,21 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     return () => clearTimeout(timer)
   }, [stockSearchQuery])
 
+ // 记录上一次登录态：仅在「已登录 → 未登录」时做界面重置（首次访客不强制展开侧边栏）
+ const prevUserRef = useRef(user)
  useEffect(() => {
+   const wasLoggedIn = !!prevUserRef.current
+   prevUserRef.current = user
    if (user) {
       const uid = user.id || 'me'
       // 缓存优先：立即用上次数据渲染，后台 revalidate
       const cachedRepos = readSwr(`u:${uid}:repos`)
       if (cachedRepos) {
         const ids = loadOrder('repo_order')
-        setUserRepos(ids.length ? reorderByIds(cachedRepos, ids) : cachedRepos)
+        setUserRepos(ids.length ? reorderByIds(cachedRepos.data, ids) : cachedRepos.data)
       }
-      reposApi.list().then(data => {
+      // TTL 内不重新请求
+      if (!cachedRepos?.fresh) reposApi.list().then(data => {
         swrApply(`u:${uid}:repos`, cachedRepos, data, (d) => {
           const ids = loadOrder('repo_order')
           setUserRepos(ids.length ? reorderByIds(d, ids) : d)
@@ -616,9 +1099,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       const cachedFollows = readSwr(`u:${uid}:follows`)
       if (cachedFollows) {
         const ids = loadOrder('follow_order')
-        setFollowedRepos(ids.length ? reorderByIds(cachedFollows, ids) : cachedFollows)
+        setFollowedRepos(ids.length ? reorderByIds(cachedFollows.data, ids) : cachedFollows.data)
       }
-      meApi.followedRepos().then(data => {
+      if (!cachedFollows?.fresh) meApi.followedRepos().then(data => {
         swrApply(`u:${uid}:follows`, cachedFollows, data, (d) => {
           const ids = loadOrder('follow_order')
           setFollowedRepos(ids.length ? reorderByIds(d, ids) : d)
@@ -626,17 +1109,33 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       }).catch(() => {})
 
       const cachedBookmarks = readSwr(`u:${uid}:bookmarks`)
-      if (cachedBookmarks) setBookmarkedRepos(cachedBookmarks)
-      meApi.bookmarkedRepos().then(data => {
+      if (cachedBookmarks) setBookmarkedRepos(cachedBookmarks.data)
+      if (!cachedBookmarks?.fresh) meApi.bookmarkedRepos().then(data => {
         swrApply(`u:${uid}:bookmarks`, cachedBookmarks, data, setBookmarkedRepos)
       }).catch(() => {})
       fetchNotifications()
       fetchTodos()
+      // 打开首页时触发失效检测（后台静默，发现失效才弹窗；每天最多自动弹 1 次）
+      tools.checkDead().then((res: any) => {
+        if (res?.dead?.length) {
+          const today = new Date().toDateString()
+          if (localStorage.getItem('dead_links_alerted') !== today) {
+            localStorage.setItem('dead_links_alerted', today)
+            setDeadLinks(res.dead)
+            setShowDeadLinks(true)
+          }
+        }
+      }).catch(() => {})
     } else {
       setUserRepos([])
       setFollowedRepos([])
       setBookmarkedRepos([])
       setTodoList([])
+      if (wasLoggedIn) {
+        // 登出（手动或 401 自动）：关个人中心、展开侧边栏，保证始终有登录入口可用
+        setShowUserPanel(false)
+        toggleSidebar(false)
+      }
       // 退出登录后重置到首页视图并重新加载默认数据
       setActiveNav('home')
       setActiveCategory('all')
@@ -644,6 +1143,19 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       loadHomeData()
     }
   }, [user])
+
+  // 一键移除勾选的失效首页链接
+  const removeDeadLinks = async (ids: string[]) => {
+    setRemovingDead(true)
+    try {
+      await Promise.all(ids.map(tid => tools.delete(tid)))
+      setToolList(prev => prev.filter((t: any) => !ids.includes(t.id)))
+      loadHomeData(true)
+      setShowDeadLinks(false)
+      setDeadLinks([])
+    } catch { /* 弹窗保持打开，用户可重试 */ }
+    finally { setRemovingDead(false) }
+  }
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => {
@@ -671,14 +1183,17 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
   const handleAvatarClick = () => {
     if (authLoading) return
-    if (user) setShowUserPanel(true)
-    else setShowAuth(true)
+    if (user) {
+      // 个人中心与侧边栏互斥：打开个人中心时侧边栏向左收回
+      setShowUserPanel(true)
+      toggleSidebar(true)
+    } else setShowAuth(true)
   }
 
   // ---------- Home page CRUD ----------
   const refreshHome = () => {
-    categories.list().then(setCategoryList)
-    tools.list().then(setToolList)
+    // 强制重新拉取并同步缓存（TTL 内刷新页面不丢最近改动）
+    loadHomeData(true)
     if (user) {
       meApi.followedRepos().then(setFollowedRepos).catch(() => {})
       meApi.bookmarkedRepos().then(setBookmarkedRepos).catch(() => {})
@@ -688,16 +1203,20 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
   const createCategory = async () => {
     if (!newCatName.trim()) return
     const pid = parentCatId === '__select__' ? '' : (parentCatId || '')
-    const newCat = await categories.create({ name: newCatName, parent_id: pid || undefined, password: newCatPassword || undefined })
-    setNewCatName(''); setNewCatPassword(''); setNewCatCats([]); setParentCatId(''); setShowCreateCat(false)
-    if (newCat) setCategoryList(prev => [...prev, newCat])
+    // 一级菜单必须选图标：未选时按名称随机挑一个；子分类保持后端默认 Folder
+    const icon = pid ? undefined : (newCatIcon || pickCategoryIconName(newCatName.trim() + ':' + Date.now()))
+    const newCat = await categories.create({ name: newCatName, icon, parent_id: pid || undefined, password: newCatPassword || undefined })
+    setNewCatName(''); setNewCatPassword(''); setNewCatCats([]); setNewCatIcon(''); setParentCatId(''); setShowCreateCat(false)
+    if (newCat) { setCategoryList(prev => [...prev, newCat]); loadHomeData(true) }
   }
 
   const updateCategory = async () => {
     if (!editCatId || !editCatName.trim()) return
-    const updated = await categories.update(editCatId, { name: editCatName, password: editCatPassword || undefined })
-    setEditCatId(null); setEditCatName(''); setEditCatPassword('')
-    if (updated) setCategoryList(prev => prev.map(c => c.id === updated.id ? updated : c))
+    const cat = categoryList.find((c: any) => c.id === editCatId)
+    const icon = cat?.parent_id ? undefined : (editCatIcon || undefined) // 子分类不改图标；一级未改动则不传
+    const updated = await categories.update(editCatId, { name: editCatName, icon, password: editCatPassword || undefined })
+    setEditCatId(null); setEditCatName(''); setEditCatPassword(''); setEditCatIcon('')
+    if (updated) { setCategoryList(prev => prev.map(c => c.id === updated.id ? updated : c)); loadHomeData(true) }
   }
 
   const clearCategoryPassword = async () => {
@@ -707,6 +1226,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     if (updated) {
       setCategoryList(prev => prev.map(c => c.id === updated.id ? updated : c))
       setUnlockedCats(prev => { const s = new Set(prev); s.delete(updated.id); return s })
+      loadHomeData(true)
     }
   }
 
@@ -716,31 +1236,48 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     setCategoryList(prev => prev.filter(c => c.id !== id))
     // Also remove tools under this category
     setToolList(prev => prev.filter(t => t.category_id !== id))
+    loadHomeData(true)
     if (activeCategory === id) setActiveCategory('all')
+  }
+
+  // 关闭添加链接弹窗：未完成添加不保留，清空全部输入状态
+  const closeAddTool = () => {
+    setShowAddTool(false)
+    setAddToolName(''); setAddToolUrl(''); setAddToolPassword(''); setAddToolCat('')
+    resetAddToolDesc()
+    setAddToolIcon(''); setAddToolTextIcon(''); setAddToolIconSrc('auto')
+    setAddToolCatError(''); setAddToolDups([]); setAddToolDupType('exact')
+    setAddToolColor(Math.floor(Math.random() * toolPalette.length))
+    setAddToolRefreshing(false)
+    if (addToolDupTimer.current) clearTimeout(addToolDupTimer.current)
+    if (addToolFileRef.current) addToolFileRef.current.value = ''
   }
 
   const createTool = async () => {
     if (!addToolName.trim() || !addToolUrl.trim()) return
-    if (!addToolCat) { setAddToolCatError('请填写分类'); return }
+    if (!addToolCat) { setAddToolCatError(t('请填写分类')); return }
     setAddToolCatError('')
     const colors = toolPalette[addToolColor]
-    const icon = isImageIcon(addToolIcon) ? addToolIcon : (addToolTextIcon || addToolName.charAt(0).toUpperCase())
+    // 图标获取失败时兜底：截取名称前 4 个字符作为文字图标
+    const icon = isImageIcon(addToolIcon) ? addToolIcon : (addToolTextIcon || addToolName.slice(0, 4))
     const newTool = await tools.create({ name: addToolName, url: addToolUrl, desc: addToolDesc, category_id: addToolCat || undefined, icon, bg_color: colors.bg, text_color: colors.text, password: addToolPassword || undefined })
-    setShowAddTool(false); setAddToolName(''); setAddToolUrl(''); setAddToolDesc(''); setAddToolIcon(''); setAddToolTextIcon(''); setAddToolPassword(''); setAddToolCatError('')
+    closeAddTool()
     setToolList(prev => [...prev, newTool])
+    loadHomeData(true)
   }
 
   const updateTool = async () => {
     if (!editTool) return
     const updated = await tools.update(editTool.id, { name: editTool.name, url: editTool.url, desc: editTool.desc, category_id: editTool.category_id, icon: editTool.icon, bg_color: editTool.bg_color, text_color: editTool.text_color, password: editTool.password !== undefined ? editTool.password : undefined })
     setEditTool(null)
-    if (updated) setToolList(prev => prev.map(t => t.id === updated.id ? updated : t))
+    if (updated) { setToolList(prev => prev.map(t => t.id === updated.id ? updated : t)); loadHomeData(true) }
   }
 
   const deleteTool = async (id: string) => {
     await tools.delete(id)
     setToolContextMenu(null)
     setToolList(prev => prev.filter(t => t.id !== id))
+    loadHomeData(true)
   }
 
   const addToolToHome = async (catId: string) => {
@@ -785,7 +1322,6 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
   // ---------- Grouped categories ----------
   const renderContent = () => {
-    if (searchQuery.trim() && searchMode === 'local') return renderSearchResults()
     switch (activeNav) {
       case 'home': return renderHomeContent()
       case 'repos': return renderReposContent()
@@ -800,18 +1336,16 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     const results = filteredTools
     return (
       <SectionPanel>
-        <SectionHeader title={`搜索结果: "${searchQuery}"`} count={results.length} unit="个结果" />
+        <SectionHeader title={t('搜索结果: "{q}"', { q: searchQuery })} count={results.length} unit={t('个结果')} />
         {results.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-12">未找到匹配的链接</p>
+          <p className="text-gray-400 text-sm text-center py-12">{t('未找到匹配的链接')}</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {results.map((tool: any) => (
               <div key={tool.id} className="relative group"
                 onContextMenu={(e) => { e.preventDefault(); setToolContextMenu({ x: e.clientX, y: e.clientY, tool }) }}>
-                {viewedTools.has(tool.id) ? null : tool.id.startsWith('follow-') && tool.viewed === 0 && (
-                  <div className="absolute -top-1.5 -right-1.5 z-10 px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white bg-red-500 shadow-md">
-                    NEW
-                  </div>
+                {!viewedTools.has(tool.id) && tool.id.startsWith('follow-') && tool.viewed === 0 && (
+                  <NewBadge id={tool.id} onSeen={() => navigator.sendBeacon(`/api/tools/${tool.id}/view`, '')} onDone={() => markViewed(tool.id)} />
                 )}
                 <a href={tool.url} target="_blank" rel="noopener noreferrer"
                   onClick={() => { if (!viewedTools.has(tool.id) && tool.id.startsWith('follow-') && tool.viewed === 0) { navigator.sendBeacon(`/api/tools/${tool.id}/view`, ''); markViewed(tool.id) } }}
@@ -829,7 +1363,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="font-semibold text-gray-800 text-sm truncate">{tool.name}</h4>
-                      {tool.desc && <p className="text-xs text-gray-400 truncate mt-0.5">{tool.desc}</p>}
+                      {tool.desc && <p className="text-xs text-gray-400 truncate mt-0.5">{t(tool.desc)}</p>}
                     </div>
                   </div>
                 </a>
@@ -849,10 +1383,10 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     )
   }
 
-  // 分类内组合项（链接 + 组件），按保存的顺序排列
+  // 分类内组合项（链接 + 组件），按保存的顺序排列（放入常用工具的组件不显示在分类里）
   const getCatItems = (catId: string) => {
     const catTools = toolList.filter((t: any) => t.category_id === catId)
-    const catWidgets = widgetList.filter((w: any) => (w.type === 'stock' || w.type === 'gold') && w.category_id === catId)
+    const catWidgets = (user ? widgetList : []).filter((w: any) => (w.type === 'stock' || w.type === 'gold' || w.type === 'countdown' || w.type === 'weread' || w.type === 'fishtank' || w.type === 'todo' || w.type === 'weathercard') && w.category_id === catId && !w.inFrequent && (FISHTANK_ENABLED || w.type !== 'fishtank'))
     const allItems = [...catTools, ...catWidgets]
     const savedOrder = itemOrderRef.current[catId]
     if (savedOrder && savedOrder.length > 0) {
@@ -862,27 +1396,183 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     return allItems
   }
 
+  // 网格内单张卡片渲染（股票 / 黄金 / 倒计时 / 链接），供分类网格与常用工具网格共用
+  const renderWidgetItem = (item: any) => {
+    const onWidgetCtx = (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); setWidgetContextMenu({ x: e.clientX, y: e.clientY, widget: item }) }
+    if (item.type === 'stock') {
+      return <StockWidgetCard key={item.id} widget={item} quote={stockQuotes[item.symbol]}
+        onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))}
+        onHeightChange={(h: number) => updateWidget(item.id, { height: h })} onContextMenu={onWidgetCtx} />
+    }
+    if (item.type === 'gold') {
+      return <GoldPriceCard key={item.id} widget={item} quote={goldPrice}
+        onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))}
+        onHeightChange={(h: number) => updateWidget(item.id, { height: h })} onContextMenu={onWidgetCtx} />
+    }
+    if (item.type === 'countdown') {
+      // 事项来自共享池：渲染时注入，更新时路由回共享池（其余设置仍存组件实例）
+      return <CountdownWidgetCard key={item.id} widget={{ ...item, events: countdownEvents }}
+        onUpdate={(patch: any) => {
+          if ('events' in patch) {
+            setCountdownEvents(patch.events || [])
+            const rest = { ...patch }; delete rest.events
+            if (Object.keys(rest).length) updateWidget(item.id, rest)
+          } else updateWidget(item.id, patch)
+        }}
+        onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} onContextMenu={onWidgetCtx} />
+    }
+    if (item.type === 'weread') {
+      return <WereadWidgetCard key={item.id} widget={item}
+        onUpdate={(patch: any) => updateWidget(item.id, patch)}
+        onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} onContextMenu={onWidgetCtx} />
+    }
+    if (item.type === 'fishtank') {
+      return <Suspense key={item.id} fallback={null}>
+        <FishTankWidgetCard widget={item}
+          onUpdate={(patch: any) => updateWidget(item.id, patch)}
+          onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} onContextMenu={onWidgetCtx} />
+      </Suspense>
+    }
+    if (item.type === 'todo') {
+      return <TodoWidgetCard key={item.id} widget={item} todos={todoList} incompleteCount={incompleteTodoCount}
+        onToggle={handleToggleTodo} onDelete={handleDeleteTodo} onAdd={(content: string) => { if (content.trim()) void todosApi.create(content.trim()).then(td => setTodoList(prev => [td, ...prev])) }}
+        onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} onContextMenu={onWidgetCtx} />
+    }
+    if (item.type === 'weathercard') {
+      return <WeatherWidgetCard key={item.id} widget={item}
+        onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))}
+        onHeightChange={(h: number) => updateWidget(item.id, { height: h })}
+        onPickCity={() => { setWeatherCityTarget(item.id); setWeatherQuery(''); setWeatherResults([]); setShowWeatherCitySearch(true) }}
+        onRelocate={async () => {
+          const loc = await locateWeather()
+          if (!loc) return false
+          updateWidget(item.id, { city: loc })
+          return true
+        }}
+        onContextMenu={onWidgetCtx} />
+    }
+    return <HomeToolCard key={item.id} tool={item} viewed={viewedTools.has(item.id)} onView={() => markViewed(item.id)} minimal={cardStyle === 'minimal'}
+      onPasswordRequired={(t) => setLinkPwdDialog({ tool: t, url: t.url })}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setToolContextMenu({ x: e.clientX, y: e.clientY, tool: item }) }} />
+  }
+
   const renderHomeContent = () => {
     // 初始加载中 → 显示骨架屏
     if (homeLoading) return <HomeSkeleton />
+    // 时间/搜索组件区块（虚拟搜索框：无真实组件且未手动删除时默认展示；右键 stopPropagation 防止冒泡出添加菜单）
+    // 时间组件未登录时展示虚拟时钟（登录与否时间都可见）；clock-virtual 的删除走 localStorage 标记
+    const clockWidgets = user
+      ? widgetList.filter((w: any) => w.type === 'clock')
+      : (clockWidgetRemoved ? [] : [{ id: 'clock-virtual', type: 'clock', name: '时间' }])
+    const realSearch = (user ? widgetList : []).filter((w: any) => w.type === 'search')
+    const searchWidgets = realSearch.length > 0 ? realSearch : (searchWidgetRemoved ? [] : [{ id: 'search-virtual', type: 'search', name: '搜索框', channel: localStorage.getItem('search_channel') || 'baidu' }])
+    const renderClockSection = (w: any) => (
+      <SectionPanel key={w.id} >
+        <ClockWidgetCard onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setWidgetContextMenu({ x: e.clientX, y: e.clientY, widget: w }) }} />
+      </SectionPanel>
+    )
+    const renderSearchSection = (w: any) => (
+      <SectionPanel key={w.id} >
+        <div data-weather-target="search" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setWidgetContextMenu({ x: e.clientX, y: e.clientY, widget: w }) }}>
+          <SearchWidgetCard channel={(w.channel as string) || 'baidu'}
+            onChannelChange={(ch) => { if (w.id === 'search-virtual') { localStorage.setItem('search_channel', ch) } else { updateWidget(w.id, { channel: ch }) }; setSearchMode(ch === 'local' ? 'local' : 'web') }}
+            value={searchQuery} onChange={setSearchQuery} />
+        </div>
+      </SectionPanel>
+    )
+    // 时间+搜索框统一区块：homeSticky 时为固定顶区（flex-shrink-0），卡片在下方独立滚动区内滚动
+    const topSections = (
+      <div className={`space-y-8 flex-shrink-0 ${cardsEnter ? 'lp-rise-top' : ''}`}>
+        {clockWidgets.map(renderClockSection)}
+        {searchWidgets.map(renderSearchSection)}
+      </div>
+    )
+    // 专注模式：只展示时间+搜索框（保持原宽度，整体垂直居中略下移），其余全部隐藏，壁纸照常
+    if (focusMode) {
+      return (
+        <div className="h-full flex flex-col items-center justify-center gap-4 pt-24">
+          {clockWidgets.map(renderClockSection)}
+          {searchWidgets.map(w => <div key={w.id} className="w-full">{renderSearchSection(w)}</div>)}
+          {searchQuery.trim() && searchMode === 'local' && <div className="w-full">{renderSearchResults()}</div>}
+        </div>
+      )
+    }
+    // 本地搜索：结果直接展示在搜索框下方（时间/搜索组件保持不消失），隐藏常用工具与分类
+    if (searchQuery.trim() && searchMode === 'local') {
+      if (homeSticky) {
+        return (<>
+          {topSections}
+          <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth pt-6 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">{renderSearchResults()}</div>
+        </>)
+      }
+      return (<>
+        {topSections}
+        {renderSearchResults()}
+      </>)
+    }
     // Common tools section — top clicked tools (from all categories)
     const lockedCatIds = new Set(categoryList.filter((c: any) => c.password && !unlockedCats.has(c.id)).map((c: any) => c.id))
+    // 固定前排的小组件（股票/黄金/倒计时），占用常用工具名额
+    // 组件属于用户私人数据：未登录不展示（避免 localStorage 缓存泄露）
+    const freqWidgets = (user ? widgetList : []).filter((w: any) => w.inFrequent && (FISHTANK_ENABLED || w.type !== 'fishtank'))
+    // 常用工具行数可在个人中心设置（3 的倍数，桌面 4 列 × N 行）：组件按跨行数占格，剩余格子给链接
+    const usedCells = freqWidgets.reduce((s: number, w: any) => s + (w.height || 1), 0)
     const topTools = toolList.filter((t: any) => (t.click_count || 0) > 0 && !lockedCatIds.has(t.category_id))
-      .sort((a: any, b: any) => (b.click_count || 0) - (a.click_count || 0))
-      .slice(0, 12)
-    
+      .sort((a: any, b: any) => (b.click_count || 0) - (a.click_count || 0) || String(a.id).localeCompare(String(b.id)))
+      .slice(0, Math.max(0, freqRows * (cardStyle === 'minimal' ? 11 : 4) - (cardStyle === 'minimal' ? 3 * usedCells : usedCells)))
+
     const cats = activeCategory === 'all' ? categoryList.filter(c => !c.parent_id) : categoryList.filter(c => c.id === activeCategory)
-    return (<>
-      {topTools.length > 0 && (
-        <SectionPanel key="__frequent__">
+    // 卡片主体（常用工具 + 分类）
+    const homeCards = (<>
+      {(freqWidgets.length > 0 || topTools.length > 0) && (
+        <SectionPanel key="__frequent__" >
           <div className="flex items-center gap-3 mb-6">
-            <span className="w-1.5 h-5 rounded-full bg-orange-400 inline-block" />
-            <h2 className="text-xl font-bold text-gray-800">常用工具</h2>
-            <span className="text-xs text-gray-400">点击次数排行</span>
+            <h2 className="text-xl font-bold text-white/80 flex items-center gap-2"><Star className="w-6 h-6 flex-shrink-0" />{t('常用工具')}</h2>
+            <span className="text-xs text-gray-400">{t('点击次数排行')}</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div data-weather-target="tools" className={`grid ${toolGridCols} auto-rows-[80px] grid-flow-row-dense`}
+            onDragOver={(e) => { if (user && freqDragIdx.current !== null) e.preventDefault() }}
+            onDrop={(e) => {
+              // 拖到网格空白格（未落在任何卡片上）→ 移到常用工具组件序列末尾
+              if (!user || freqDragIdx.current === null) return
+              e.preventDefault()
+              const from = freqDragIdx.current
+              freqDragIdx.current = null
+              const list = [...freqWidgets]
+              const [moved] = list.splice(from, 1)
+              list.push(moved)
+              handleReorderFreqWidgets(list)
+            }}>
+            {freqWidgets.map((w: any, idx: number) => (
+              <div key={w.id} draggable={!!user} style={{ gridRow: `span ${w.height || 1}` }}
+                className={`h-full min-h-0 select-none ${cardStyle === 'minimal' ? 'col-span-3' : ''}`}
+                onDragStart={(e) => {
+                  if (!user) return
+                  freqDragIdx.current = idx
+                  e.dataTransfer.setData('text/plain', String(idx))
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.currentTarget.classList.add('opacity-50')
+                }}
+                onDragEnd={(e) => { e.currentTarget.classList.remove('opacity-50'); freqDragIdx.current = null }}
+                onDragOver={(e) => { if (user && freqDragIdx.current !== null && freqDragIdx.current !== idx) e.preventDefault() }}
+                onDrop={(e) => {
+                  if (!user) return
+                  e.preventDefault(); e.stopPropagation()
+                  e.currentTarget.classList.remove('opacity-50')
+                  const from = freqDragIdx.current
+                  freqDragIdx.current = null
+                  if (from === null || from === idx) return
+                  const list = [...freqWidgets]
+                  const [moved] = list.splice(from, 1)
+                  list.splice(from < idx ? idx - 1 : idx, 0, moved)
+                  handleReorderFreqWidgets(list)
+                }}>
+                {/* 跨行组件：wrapper 已 span N 行（行高固定 98px），卡片 h-full 填满 */}
+                {renderWidgetItem(w)}
+              </div>
+            ))}
             {topTools.map((tool: any) => (
-              <HomeToolCard key={tool.id} tool={tool} viewed={true} onView={() => {}}
+              <HomeToolCard key={tool.id} tool={tool} viewed={true} onView={() => {}} minimal={cardStyle === 'minimal'}
                 onPasswordRequired={(t) => setLinkPwdDialog({ tool: t, url: t.url })} />
             ))}
           </div>
@@ -892,8 +1582,11 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       // Find sub-categories for this parent
       const subCats = categoryList.filter((c: any) => c.parent_id === cat.id)
      const hasSubCats = subCats.length > 0
-    const catStockWidgets = widgetList.filter(w => w.type === 'stock' && w.category_id === cat.id)
-    const catGoldWidgets = widgetList.filter(w => w.type === 'gold' && w.category_id === cat.id)
+    const catStockWidgets = (user ? widgetList : []).filter(w => w.type === 'stock' && w.category_id === cat.id)
+    const catGoldWidgets = (user ? widgetList : []).filter(w => w.type === 'gold' && w.category_id === cat.id)
+    const catCountdownWidgets = (user ? widgetList : []).filter(w => w.type === 'countdown' && w.category_id === cat.id && !w.inFrequent)
+    // 其余组件类型（待办/微信读书/天气卡片）：空分类判断需一并计入，否则仅有组件的分类会误显示「暂无链接」
+    const catOtherWidgets = (user ? widgetList : []).filter(w => (w.type === 'todo' || w.type === 'weread' || w.type === 'weathercard') && w.category_id === cat.id && !w.inFrequent)
 
      if (hasSubCats) {
         // Group tools by sub-category
@@ -901,28 +1594,19 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
           <SectionPanel key={cat.id}>
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <span className="w-1.5 h-5 rounded-full bg-blue-400 inline-block" />
-                <h2 className="text-xl font-bold text-gray-800 cursor-context-menu"
-                  onContextMenu={(e) => { if (user) { e.preventDefault(); e.stopPropagation(); setCatContextMenu({ x: e.clientX, y: e.clientY, cat }) } }}>{cat.name}</h2>
+                <CategoryIcon cat={cat} className="w-6 h-6 text-white/80 flex-shrink-0" />
+                <h2 className="text-xl font-bold text-white/80 cursor-context-menu"
+                  onContextMenu={(e) => { if (user) { e.preventDefault(); e.stopPropagation(); setCatContextMenu({ x: e.clientX, y: e.clientY, cat }) } }}>{t(cat.name)}</h2>
               </div>
             </div>
             {/* Uncategorized tools directly under parent — show BEFORE sub-categories */}
             {(() => {
               return (
-                <div className="mb-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
-                  onDragOver={(e) => { if (gridDragState?.item && !isWidgetItem(gridDragState.item) && user) e.preventDefault() }}
-                  onDrop={(e) => { const d = gridDragState; if (d?.item && !isWidgetItem(d.item) && user) { e.preventDefault(); handleMoveToolToCategory(d.item, cat.id) } }}>
+                <div className={`mb-6 grid ${toolGridCols} auto-rows-[80px]`} {...gridContainerHandlers(cat.id)}>
               <DraggableGrid items={getCatItems(cat.id)} disabled={!user} onReorder={handleReorderCombined}
-                gridKey={cat.id} onDropExternal={(item, dropIndex) => handleMoveToolToCategory(item, cat.id, dropIndex)}>
-                    {(item: any) => item.type === 'stock' ? (
-                      <StockWidgetCard key={item.id} widget={item} quote={stockQuotes[item.symbol]} onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} />
-                  ) : item.type === 'gold' ? (
-                    <GoldPriceCard key={item.id} widget={item} quote={goldPrice} onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} />
-                  ) : (
-                      <HomeToolCard key={item.id} tool={item} viewed={viewedTools.has(item.id)} onView={() => markViewed(item.id)}
-                        onPasswordRequired={(t) => setLinkPwdDialog({ tool: t, url: t.url })}
-                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setToolContextMenu({ x: e.clientX, y: e.clientY, tool: item }) }} />
-                    )}
+                gridKey={cat.id} onDropExternal={(item, dropIndex) => handleMoveToolToCategory(item, cat.id, dropIndex)}
+                spanOf={(item) => isWidgetItem(item) ? (item.height || 1) : 1} clsOf={(item) => cardStyle === 'minimal' && isWidgetItem(item) ? 'col-span-3' : ''}>
+                    {(item: any) => renderWidgetItem(item)}
                   </DraggableGrid>
                 </div>
               )
@@ -934,15 +1618,15 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 <div key={subCat.id} className="mb-6 last:mb-0">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <span className="w-1 h-4 rounded-full bg-blue-300 inline-block" />
-                      <h3 className="font-semibold text-gray-700 text-sm cursor-context-menu"
-                        onContextMenu={(e) => { if (user) { e.preventDefault(); e.stopPropagation(); setCatContextMenu({ x: e.clientX, y: e.clientY, cat: subCat }) } }}>{subCat.name}</h3>
+                      <span className="lp-subcat-bar w-1 h-4 rounded-full inline-block" />
+                      <h3 className="font-semibold text-white text-sm cursor-context-menu"
+                        onContextMenu={(e) => { if (user) { e.preventDefault(); e.stopPropagation(); setCatContextMenu({ x: e.clientX, y: e.clientY, cat: subCat }) } }}>{t(subCat.name)}</h3>
                       <span className="text-xs text-gray-400">({subTools.length})</span>
                     </div>
                   </div>
                   {subLocked ? (
                     <div className="py-6 flex flex-col items-center justify-center gap-3 bg-white/40 rounded-2xl border border-dashed border-gray-200">
-                     <p className="text-xs text-gray-400 text-center">已加密，请输入密码</p>
+                     <p className="text-xs text-gray-400 text-center">{t('已加密，请输入密码')}</p>
                       <input type="password"
                         ref={el => { catPwdRefs.current[subCat.id] = el }}
                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault()
@@ -951,27 +1635,18 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                             setUnlockedCats(prev => new Set([...prev, subCat.id]))
                             setCatPwdErrors(prev => { const r = { ...prev }; delete r[subCat.id]; return r })
                           } else {
-                            setCatPwdErrors(prev => ({ ...prev, [subCat.id]: '密码错误' }))
+                            setCatPwdErrors(prev => ({ ...prev, [subCat.id]: t('密码错误') }))
                           }
                         }}}
-                        placeholder="输入密码" className="h-9 px-3 bg-white/60 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-400/50 w-40 text-center" />
+                        placeholder={t('输入密码')} className="h-9 px-3 bg-white/60 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-400/50 w-40 text-center" />
                       {catPwdErrors[subCat.id] && <p className="text-xs text-red-500 text-center">{catPwdErrors[subCat.id]}</p>}
                     </div>
                   ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
-              onDragOver={(e) => { if (gridDragState?.item && !isWidgetItem(gridDragState.item) && user) e.preventDefault() }}
-              onDrop={(e) => { const d = gridDragState; if (d?.item && !isWidgetItem(d.item) && user) { e.preventDefault(); handleMoveToolToCategory(d.item, subCat.id) } }}>
+            <div className={`grid ${toolGridCols} auto-rows-[80px]`} {...gridContainerHandlers(subCat.id)}>
               <DraggableGrid items={getCatItems(subCat.id)} disabled={!user} onReorder={handleReorderCombined}
-                gridKey={subCat.id} onDropExternal={(item, dropIndex) => handleMoveToolToCategory(item, subCat.id, dropIndex)}>
-                      {(item: any) => item.type === 'stock' ? (
-                        <StockWidgetCard key={item.id} widget={item} quote={stockQuotes[item.symbol]} onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} />
-                  ) : item.type === 'gold' ? (
-                    <GoldPriceCard key={item.id} widget={item} quote={goldPrice} onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} />
-                  ) : (
-                        <HomeToolCard key={item.id} tool={item} viewed={viewedTools.has(item.id)} onView={() => markViewed(item.id)}
-                          onPasswordRequired={(t) => setLinkPwdDialog({ tool: t, url: t.url })}
-                          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setToolContextMenu({ x: e.clientX, y: e.clientY, tool: item }) }} />
-                      )}
+                gridKey={subCat.id} onDropExternal={(item, dropIndex) => handleMoveToolToCategory(item, subCat.id, dropIndex)}
+                spanOf={(item) => isWidgetItem(item) ? (item.height || 1) : 1} clsOf={(item) => cardStyle === 'minimal' && isWidgetItem(item) ? 'col-span-3' : ''}>
+                      {(item: any) => renderWidgetItem(item)}
                     </DraggableGrid>
                   </div>
                   )}
@@ -986,18 +1661,18 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
      const catTools = filteredTools.filter((t: any) => t.category_id === cat.id)
      const isLocked = cat.password && !unlockedCats.has(cat.id)
      return (
-        <SectionPanel key={cat.id}>
+        <SectionPanel key={cat.id} >
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <span className="w-1.5 h-5 rounded-full bg-blue-400 inline-block" />
-              <h2 className="text-xl font-bold text-gray-800 cursor-context-menu"
-                onContextMenu={(e) => { if (user) { e.preventDefault(); e.stopPropagation(); setCatContextMenu({ x: e.clientX, y: e.clientY, cat }) } }}>{cat.name}</h2>
-              <span className="text-xs text-gray-400">{catTools.length} 个链接</span>
+              <CategoryIcon cat={cat} className="w-6 h-6 text-white/80 flex-shrink-0" />
+              <h2 className="text-xl font-bold text-white/80 cursor-context-menu"
+                onContextMenu={(e) => { if (user) { e.preventDefault(); e.stopPropagation(); setCatContextMenu({ x: e.clientX, y: e.clientY, cat }) } }}>{t(cat.name)}</h2>
+              <span className="text-xs text-gray-400">{t('{n} 个链接', { n: catTools.length })}</span>
             </div>
           </div>
           {isLocked ? (
             <div className="py-10 flex flex-col items-center justify-center gap-4 bg-white/40 rounded-2xl border border-dashed border-gray-200">
-             <p className="text-sm text-gray-400 text-center">此分类已加密，请输入密码查看</p>
+             <p className="text-sm text-gray-400 text-center">{t('此分类已加密，请输入密码查看')}</p>
               <input type="password"
                 ref={el => { catPwdRefs.current[cat.id] = el }}
                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault()
@@ -1006,54 +1681,36 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                     setUnlockedCats(prev => new Set([...prev, cat.id]))
                     setCatPwdErrors(prev => { const r = { ...prev }; delete r[cat.id]; return r })
                   } else {
-                    setCatPwdErrors(prev => ({ ...prev, [cat.id]: '密码错误' }))
+                    setCatPwdErrors(prev => ({ ...prev, [cat.id]: t('密码错误') }))
                   }
                 }}}
-                placeholder="输入密码"
+                placeholder={t('输入密码')}
                 className="h-10 px-4 bg-white/60 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm w-48 text-center" />
               {catPwdErrors[cat.id] && <p className="text-xs text-red-500 text-center">{catPwdErrors[cat.id]}</p>}
             </div>
           ) : catTools.length === 0 ? (
-              catStockWidgets.length === 0 && catGoldWidgets.length === 0 ? (
+              catStockWidgets.length === 0 && catGoldWidgets.length === 0 && catCountdownWidgets.length === 0 && catOtherWidgets.length === 0 ? (
               <div className="text-gray-400 text-sm text-center py-12 rounded-2xl border-2 border-dashed border-transparent transition-colors"
                 onDragOver={(e) => { const d = gridDragState; if (d?.item && !isWidgetItem(d.item) && user) { e.preventDefault(); e.currentTarget.classList.add('border-blue-300', 'bg-white/40', 'text-blue-400') } }}
                 onDragLeave={(e) => e.currentTarget.classList.remove('border-blue-300', 'bg-white/40', 'text-blue-400')}
                 onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-blue-300', 'bg-white/40', 'text-blue-400'); const d = gridDragState; if (d?.item && !isWidgetItem(d.item) && user) handleMoveToolToCategory(d.item, cat.id) }}>
-                暂无链接
+                {t('暂无链接')}
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
-                onDragOver={(e) => { if (gridDragState?.item && !isWidgetItem(gridDragState.item) && user) e.preventDefault() }}
-                onDrop={(e) => { const d = gridDragState; if (d?.item && !isWidgetItem(d.item) && user) { e.preventDefault(); handleMoveToolToCategory(d.item, cat.id) } }}>
+              <div className={`grid ${toolGridCols} auto-rows-[80px]`} {...gridContainerHandlers(cat.id)}>
                 <DraggableGrid items={getCatItems(cat.id)} disabled={!user} onReorder={handleReorderCombined}
-                  gridKey={cat.id} onDropExternal={(item, dropIndex) => handleMoveToolToCategory(item, cat.id, dropIndex)}>
-                  {(item: any) => item.type === 'stock' ? (
-                    <StockWidgetCard key={item.id} widget={item} quote={stockQuotes[item.symbol]} onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} />
-                  ) : item.type === 'gold' ? (
-                    <GoldPriceCard key={item.id} widget={item} quote={goldPrice} onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} />
-                  ) : (
-                    <HomeToolCard key={item.id} tool={item} viewed={viewedTools.has(item.id)} onView={() => markViewed(item.id)}
-                      onPasswordRequired={(t) => setLinkPwdDialog({ tool: t, url: t.url })}
-                      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setToolContextMenu({ x: e.clientX, y: e.clientY, tool: item }) }} />
-                  )}
+                  gridKey={cat.id} onDropExternal={(item, dropIndex) => handleMoveToolToCategory(item, cat.id, dropIndex)}
+                  spanOf={(item) => isWidgetItem(item) ? (item.height || 1) : 1} clsOf={(item) => cardStyle === 'minimal' && isWidgetItem(item) ? 'col-span-3' : ''}>
+                  {(item: any) => renderWidgetItem(item)}
                 </DraggableGrid>
               </div>
             )
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
-              onDragOver={(e) => { if (gridDragState?.item && !isWidgetItem(gridDragState.item) && user) e.preventDefault() }}
-              onDrop={(e) => { const d = gridDragState; if (d?.item && !isWidgetItem(d.item) && user) { e.preventDefault(); handleMoveToolToCategory(d.item, cat.id) } }}>
+            <div className={`grid ${toolGridCols} auto-rows-[80px]`} {...gridContainerHandlers(cat.id)}>
               <DraggableGrid items={getCatItems(cat.id)} disabled={!user} onReorder={handleReorderCombined}
-                gridKey={cat.id} onDropExternal={(item, dropIndex) => handleMoveToolToCategory(item, cat.id, dropIndex)}>
-                {(item: any) => item.type === 'stock' ? (
-                  <StockWidgetCard key={item.id} widget={item} quote={stockQuotes[item.symbol]} onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} />
-                  ) : item.type === 'gold' ? (
-                    <GoldPriceCard key={item.id} widget={item} quote={goldPrice} onRemove={() => setWidgetList(prev => prev.filter(x => x.id !== item.id))} />
-                  ) : (
-                  <HomeToolCard key={item.id} tool={item} viewed={viewedTools.has(item.id)} onView={() => markViewed(item.id)}
-                    onPasswordRequired={(t) => setLinkPwdDialog({ tool: t, url: t.url })}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setToolContextMenu({ x: e.clientX, y: e.clientY, tool: item }) }} />
-                )}
+                gridKey={cat.id} onDropExternal={(item, dropIndex) => handleMoveToolToCategory(item, cat.id, dropIndex)}
+                spanOf={(item) => isWidgetItem(item) ? (item.height || 1) : 1} clsOf={(item) => cardStyle === 'minimal' && isWidgetItem(item) ? 'col-span-3' : ''}>
+                {(item: any) => renderWidgetItem(item)}
               </DraggableGrid>
             </div>
           )}
@@ -1061,22 +1718,36 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       )
    })}
     </>
-  )
-}
+    )
+
+    if (homeSticky) {
+      // 固定顶区 + 独立滚动区：卡片只在搜索框下方区域滚动，不会出现在时间/搜索框区域
+      return (<>
+        {topSections}
+        <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth pt-8 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          <div className={`space-y-8 ${cardsEnter ? 'lp-rise-cards' : ''}`}>{homeCards}</div>
+        </div>
+      </>)
+    }
+    return (<>
+      {topSections}
+      <div className={`space-y-8 ${cardsEnter ? 'lp-rise-cards' : ''}`}>{homeCards}</div>
+    </>)
+  }
 
   const renderReposContent = () => {
     return (
-      <SectionPanel>
+      <SectionPanel >
         <div className="flex items-center gap-3 mb-6">
           <div>
-            <h2 className="text-xl font-bold text-gray-800">我的仓库</h2>
-            <span className="text-xs text-gray-400">{userRepos.length} 个仓库</span>
+            <h2 className="text-xl font-bold text-white">{t('我的仓库')}</h2>
+            <span className="text-xs text-gray-400">{t('{n} 个仓库', { n: userRepos.length })}</span>
           </div>
         </div>
         {!user ? (
-          <EmptyState icon={Box} text="请先登录" subtext="登录后可查看仓库" />
+          <EmptyState icon={Box} text={t('请先登录')} subtext={t('登录后可查看仓库')} />
         ) : userRepos.length === 0 ? (
-          <EmptyState icon={Box} text="暂无仓库" subtext='点击左侧菜单中"创建仓库"开始' />
+          <EmptyState icon={Box} text={t('暂无仓库')} subtext={t('点击左侧菜单中"创建仓库"开始')} />
         ) : (
           <RepoGrid repos={userRepos} />
         )}
@@ -1086,17 +1757,17 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
   const renderFavoritesContent = () => {
     return (
-      <SectionPanel>
+      <SectionPanel >
         <div className="flex items-center gap-3 mb-6">
           <div>
-            <h2 className="text-xl font-bold text-gray-800">我的关注</h2>
-            <span className="text-xs text-gray-400">{followedRepos.length} 个关注的仓库</span>
+            <h2 className="text-xl font-bold text-white">{t('我的关注')}</h2>
+            <span className="text-xs text-gray-400">{t('{n} 个关注的仓库', { n: followedRepos.length })}</span>
           </div>
         </div>
         {!user ? (
-          <EmptyState icon={Heart} text="请先登录" subtext="登录后可查看关注的仓库" />
+          <EmptyState icon={Heart} text={t('请先登录')} subtext={t('登录后可查看关注的仓库')} />
         ) : followedRepos.length === 0 ? (
-          <EmptyState icon={Heart} text="暂无关注的仓库" subtext="在仓库页面点击关注按钮" />
+          <EmptyState icon={Heart} text={t('暂无关注的仓库')} subtext={t('在仓库页面点击关注按钮')} />
         ) : (
           <RepoGrid repos={followedRepos} />
         )}
@@ -1106,17 +1777,17 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
   const renderBookmarksContent = () => {
     return (
-      <SectionPanel>
+      <SectionPanel >
         <div className="flex items-center gap-3 mb-6">
           <div>
-            <h2 className="text-xl font-bold text-gray-800">我的收藏</h2>
-            <span className="text-xs text-gray-400">收藏的仓库</span>
+            <h2 className="text-xl font-bold text-white">{t('我的收藏')}</h2>
+            <span className="text-xs text-gray-400">{t('收藏的仓库')}</span>
           </div>
         </div>
         {!user ? (
-          <EmptyState icon={Star} text="请先登录" subtext="登录后可查看收藏的仓库" />
+          <EmptyState icon={Star} text={t('请先登录')} subtext={t('登录后可查看收藏的仓库')} />
         ) : bookmarkedRepos.length === 0 ? (
-          <EmptyState icon={Star} text="暂无收藏的仓库" subtext="在仓库页面点击收藏按钮" />
+          <EmptyState icon={Star} text={t('暂无收藏的仓库')} subtext={t('在仓库页面点击收藏按钮')} />
         ) : (
           <RepoGrid repos={bookmarkedRepos} />
         )}
@@ -1132,17 +1803,17 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         return new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime()
       })
       return (
-        <SectionPanel>
+        <SectionPanel >
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-bold text-gray-800">全部仓库</h2>
-              <span className="text-xs text-gray-400">社区发布的公开仓库 · 关注仓库后，您的首页将会同步展示仓库链接</span>
+              <h2 className="text-xl font-bold text-white">{t('全部仓库')}</h2>
+              <span className="text-xs text-white">{t('社区发布的公开仓库 · 关注仓库后，您的首页将会同步展示仓库链接')}</span>
             </div>
             <select value={discoverSort} onChange={e => setDiscoverSort(e.target.value)}
-              className="h-9 px-3 bg-white/60 border border-white/80 rounded-xl text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400/50">
-              <option value="followers">关注最多</option>
-              <option value="bookmarks">收藏最多</option>
-              <option value="recent">最近更新</option>
+              className="h-9 px-3 bg-slate-900/50 border border-white/30 rounded-xl text-xs text-white [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-blue-400/50">
+              <option value="followers" className="bg-slate-900 text-white">{t('关注最多')}</option>
+              <option value="bookmarks" className="bg-slate-900 text-white">{t('收藏最多')}</option>
+              <option value="recent" className="bg-slate-900 text-white">{t('最近更新')}</option>
             </select>
           </div>
           <DiscoverRepoGrid repos={sortedRepos} user={user} follows={follows} bookmarks={bookmarks} />
@@ -1152,12 +1823,12 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
     const column = discoverData.find((c) => c.id === activeColumn)
     return (
-      <SectionPanel>
+      <SectionPanel >
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-white/60 shadow-sm border border-white flex items-center justify-center text-blue-500"><Compass className="w-5 h-5" /></div>
           <div>
-            <h2 className="text-xl font-bold text-gray-800">{column?.name || '发现'}</h2>
-            <span className="text-xs text-gray-400">{column?.desc}</span>
+            <h2 className="text-xl font-bold text-white">{column?.name ? t(column.name) : t('发现')}</h2>
+            <span className="text-xs text-white">{column?.desc ? t(column.desc) : null}</span>
           </div>
         </div>
         <ToolGrid tools={toolList} />
@@ -1175,15 +1846,27 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-blue-400/20 blur-[100px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-purple-400/20 blur-[120px] pointer-events-none" />
       <div className="absolute top-[40%] left-[60%] w-[30%] h-[30%] rounded-full bg-teal-300/20 blur-[80px] pointer-events-none" />
+      {/* 壁纸层（盖在渐变背景/光斑之上、内容之下；resolvedUrl 为空时不显示即默认背景） */}
+      <div className={`absolute inset-0 bg-cover bg-center pointer-events-none transition-opacity duration-500 ${resolvedUrl && !wallpaperHidden ? 'opacity-100' : 'opacity-0'}`}
+        style={{ backgroundImage: resolvedUrl ? `url(${resolvedUrl})` : undefined }}>
+        {resolvedUrl && <div className="absolute inset-0 bg-white/10" />}
+        {/* CRT 壁纸效果：扫描线 + RGB 荫罩 + 暗角 + 轻微闪烁（面板样式开关控制） */}
+        {resolvedUrl && crtEffect && !wallpaperHidden && <div className="lp-crt" aria-hidden="true" />}
+      </div>
+
+      {/* 壁纸天气效果层（雨/雪/雷/太阳 + 调暗遮罩）：位于壁纸之上、内容之下 */}
+      {WEATHER_FX_ENABLED && weatherWidget && weatherData && (
+        <WeatherLayer condition={weatherData.condition} wind={weatherData.wind || 0} />
+      )}
 
       {isMobileMenuOpen && (
         <div className="fixed inset-0 bg-white/20 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
       )}
 
-      {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-48 bg-white/40 backdrop-blur-xl border-r border-white/60 shadow-[4px_0_24px_rgba(0,0,0,0.02)] transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:flex-shrink-0 flex flex-col h-screen ${
+      {/* Sidebar：展开向右推出 / 收起向左收回（桌面端用负 margin 平移，动画后 invisible 释放交互） */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-48 bg-white/70 backdrop-blur-2xl border-r border-white/60 shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-all duration-300 ease-in-out lg:translate-x-0 lg:static lg:flex-shrink-0 flex flex-col h-screen ${
         isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-      }`}>
+      } ${sidebarCollapsed ? 'lg:-ml-48 lg:invisible' : ''}`}>
         <div className="h-20 flex items-center justify-center px-2 border-b border-white/50 flex-shrink-0">
           <img src="/logo.png" alt="LinkPad" className="h-full max-h-8 w-auto object-contain" />
         </div>
@@ -1194,7 +1877,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
             <button onClick={() => toggleSection('discover')} className={sidebarItemClass(activeNav === 'discover')}>
               <div className="flex items-center flex-1">
                 <Compass className="w-4 h-4 mr-2.5 text-gray-400" />
-                <span>发现</span>
+                <span>{t('发现')}</span>
               </div>
               <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedSections.discover ? 'rotate-0' : '-rotate-90'}`} />
             </button>
@@ -1204,7 +1887,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   className={`w-full text-left pr-3 pl-[38px] py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
                     activeColumn === 'repos' && activeNav === 'discover' ? 'text-blue-600 bg-blue-50/50' : 'text-gray-500 hover:text-gray-800 hover:bg-white/30'
                   }`}>
-                  全部仓库
+                  {t('全部仓库')}
                 </button>
               </div>
             )}
@@ -1215,7 +1898,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
             <button onClick={() => toggleSection('home')} className={sidebarItemClass(activeNav === 'home')}>
               <div className="flex items-center flex-1">
                 <Home className="w-4 h-4 mr-2.5 text-gray-400" />
-                <span>首页</span>
+                <span>{t('首页')}</span>
               </div>
               <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedSections.home ? 'rotate-0' : '-rotate-90'}`} />
             </button>
@@ -1225,7 +1908,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   // Merge reordered parents back into full categoryList
                   const newList = [...list, ...categoryList.filter((c: any) => c.parent_id)]
                   setCategoryList(newList); saveOrder('cat_order', newList)
-                  categories.reorder(list.map((c: any, i: number) => ({ id: c.id, sort_order: i })))
+                  categories.reorder(list.map((c: any, i: number) => ({ id: c.id, sort_order: i }))).finally(() => loadHomeData(true))
                 }}>
                   {(cat: any) => {
                     return (
@@ -1234,7 +1917,10 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                           <button onClick={() => handleCategoryClick(cat.id)}
                             className={`w-full text-left pr-3 pl-[38px] py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
                             activeCategory === cat.id && activeNav === 'home' ? 'text-blue-600 bg-blue-50/50' : 'text-gray-500 hover:text-gray-800 hover:bg-white/30'
-                          }`}>{cat.name}</button>
+                          }`}>
+                            <CategoryIcon cat={cat} className="w-3.5 h-3.5 inline-block mr-1.5 align-[-2px] flex-shrink-0 text-gray-400" />
+                            {t(cat.name)}
+                          </button>
                         </div>
                       </div>
                     );
@@ -1246,7 +1932,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               <div className="mt-1 space-y-0.5">
                 <button onClick={() => { setParentCatId(''); setShowCreateCat(true) }}
                   className="w-full text-left pr-3 pl-[38px] py-2 rounded-lg text-xs font-medium text-blue-500 hover:bg-blue-50/30 transition-all duration-200">
-                  + 创建菜单
+                  + {t('创建菜单')}
                 </button>
               </div>
             )}
@@ -1257,16 +1943,16 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
             <button onClick={() => toggleSection('repos')} className={sidebarItemClass(activeNav === 'repos')}>
               <div className="flex items-center flex-1">
                 <Box className="w-4 h-4 mr-2.5 text-gray-400" />
-                <span>我的仓库</span>
+                <span>{t('我的仓库')}</span>
               </div>
               <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedSections.repos ? 'rotate-0' : '-rotate-90'}`} />
             </button>
             {expandedSections.repos && (
               <div className="mt-1 space-y-0.5">
                 {!user ? (
-                  <div className="px-3 py-2 text-xs text-gray-400 italic">请先登录</div>
+                  <div className="px-3 py-2 text-xs text-gray-400 italic">{t('请先登录')}</div>
                 ) : userRepos.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-400 italic">暂无仓库</div>
+                  <div className="px-3 py-2 text-xs text-gray-400 italic">{t('暂无仓库')}</div>
                 ) : (
                   <DraggableList items={userRepos} onReorder={(list) => { setUserRepos(list); saveOrder('repo_order', list) }}>
                     {(repo: any) => (
@@ -1281,7 +1967,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 )}
                 <button onClick={() => { setShowCreateRepo(true); setIsMobileMenuOpen(false) }}
                   className="w-full text-left pr-3 pl-[38px] py-2 rounded-lg text-xs font-medium text-blue-500 hover:bg-blue-50/30 transition-all duration-200 mt-1">
-                  + 创建仓库
+                  + {t('创建仓库')}
                 </button>
               </div>
             )}
@@ -1292,16 +1978,16 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
             <button onClick={() => toggleSection('favorites')} className={sidebarItemClass(activeNav === 'favorites')}>
               <div className="flex items-center flex-1">
                 <Heart className="w-4 h-4 mr-2.5 text-gray-400" />
-                <span>我的关注</span>
+                <span>{t('我的关注')}</span>
               </div>
               <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedSections.favorites ? 'rotate-0' : '-rotate-90'}`} />
             </button>
             {expandedSections.favorites && (
               <div className="mt-1 space-y-0.5">
                 {!user ? (
-                  <div className="px-3 py-2 text-xs text-gray-400 italic">请先登录</div>
+                  <div className="px-3 py-2 text-xs text-gray-400 italic">{t('请先登录')}</div>
                 ) : followedRepos.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-400 italic">暂无关注的仓库</div>
+                  <div className="px-3 py-2 text-xs text-gray-400 italic">{t('暂无关注的仓库')}</div>
                 ) : (
                   <DraggableList items={followedRepos} onReorder={(list) => { setFollowedRepos(list); saveOrder('follow_order', list) }}>
                     {(repo: any) => (
@@ -1321,16 +2007,16 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
             <button onClick={() => toggleSection('bookmarks')} className={sidebarItemClass(activeNav === 'bookmarks')}>
               <div className="flex items-center flex-1">
                 <Star className="w-4 h-4 mr-2.5 text-gray-400" />
-                <span>我的收藏</span>
+                <span>{t('我的收藏')}</span>
               </div>
               <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedSections.bookmarks ? 'rotate-0' : '-rotate-90'}`} />
             </button>
             {expandedSections.bookmarks && (
               <div className="mt-1 space-y-0.5">
                 {!user ? (
-                  <div className="px-3 py-2 text-xs text-gray-400 italic">请先登录</div>
+                  <div className="px-3 py-2 text-xs text-gray-400 italic">{t('请先登录')}</div>
                 ) : bookmarkedRepos.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-400 italic">暂无收藏</div>
+                  <div className="px-3 py-2 text-xs text-gray-400 italic">{t('暂无收藏')}</div>
                 ) : (
                   <DraggableList items={bookmarkedRepos} onReorder={(list) => { setBookmarkedRepos(list); saveOrder('bookmark_order', list) }}>
                     {(repo: any) => (
@@ -1345,171 +2031,67 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
             )}
           </div>
         </div>
+
+        {/* 底部：头像 / 收起侧边栏（收起钮仅桌面） */}
+        <div className="flex-shrink-0 border-t border-white/50 p-3 relative z-20">
+          <div className="flex items-center gap-2">
+            {user ? (
+              <button onClick={handleAvatarClick} title={t('个人中心')}
+                className="flex items-center gap-2.5 flex-1 min-w-0 rounded-2xl hover:bg-white/40 transition-all group">
+                <span className="w-10 h-10 rounded-2xl bg-white/40 border border-white/60 flex items-center justify-center font-bold text-gray-500 overflow-hidden ring-2 ring-gray-200/60 shadow-sm group-hover:shadow-md transition-all flex-shrink-0">
+                  {user.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : user.nickname?.charAt(0)?.toUpperCase() || <User className="w-5 h-5" />}
+                </span>
+                <span className="flex-1 min-w-0 text-left text-sm font-medium text-gray-700 truncate">{user.nickname}</span>
+              </button>
+            ) : (
+              <button onClick={handleAvatarClick} title={t('登录 / 注册')}
+                className="flex items-center gap-2.5 flex-1 min-w-0 rounded-2xl hover:bg-white/40 transition-all group">
+                <span className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-200/60 flex items-center justify-center flex-shrink-0">
+                  <LogIn className="w-5 h-5 text-blue-500" />
+                </span>
+                <span className="flex-1 min-w-0 text-left text-sm font-medium text-gray-700 truncate">{t('登录 / 注册')}</span>
+              </button>
+            )}
+            <button onClick={() => toggleSidebar(true)} title={t('收起侧边栏')}
+              className="hidden lg:inline-flex ml-auto w-8 h-8 rounded-lg items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-white/30 transition-all">
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        {/* Header */}
-        <header className="h-20 bg-white/10 backdrop-blur-xl border-b border-white/20 flex items-center px-6 sm:px-8 lg:px-10 flex-shrink-0 sticky top-0 z-30 shadow-[0_4px_24px_rgba(0,0,0,0.02)]">
-          <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-2 -ml-2 mr-2 text-gray-500 hover:text-gray-900 hover:bg-white/50 rounded-xl transition-colors flex-shrink-0">
-            <Menu className="w-6 h-6" />
+      <main className="relative z-10 flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        {/* 顶栏已移除：浮动按钮替代 —— 移动端菜单 / 侧边栏展开（灰色半透明无背景）/ 专注模式切换；天气特效开启时默认隐藏，悬停显现避免与太阳重叠 */}
+        <button onClick={() => setIsMobileMenuOpen(true)}
+          className={`lg:hidden fixed top-4 left-4 z-40 w-11 h-11 rounded-2xl bg-white/60 backdrop-blur-xl border border-white/60 shadow-md flex items-center justify-center text-gray-600 hover:text-gray-900 transition-all ${weatherWidget && weatherData ? 'opacity-0 hover:opacity-100 focus-visible:opacity-100' : ''}`}>
+          <Menu className="w-5 h-5" />
+        </button>
+        {sidebarCollapsed && (
+          <button onClick={() => toggleSidebar(false)} title={t('展开侧边栏')}
+            className={`hidden lg:flex fixed top-4 left-4 z-40 w-10 h-10 items-center justify-center text-gray-400/80 hover:text-gray-700 transition-all ${weatherWidget && weatherData ? 'opacity-0 hover:opacity-100 focus-visible:opacity-100' : ''}`}>
+            <PanelLeftOpen className="w-5 h-5" />
           </button>
-
-          <div className="hidden lg:block flex-1" />
-
-          <div className="max-w-xl w-full mx-auto px-2 sm:px-4">
-            <div className="w-full relative group flex items-center">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1">
-                <button onClick={() => setSearchMode(searchMode === 'web' ? 'local' : 'web')}
-                  className="flex items-center gap-1 text-sm font-medium text-gray-400 hover:text-gray-600 cursor-pointer outline-none">
-                  <span>{searchMode === 'web' ? '网络' : '本地'}</span>
-                  {searchMode === 'web' ? (
-                    <svg className="w-4 h-4 text-gray-400 flex-shrink-0" viewBox="0 0 1024 1024" fill="currentColor">
-                      <path d="M533.333333 42.666667C262.346667 42.666667 42.666667 262.346667 42.666667 533.333333s219.68 490.666667 490.666666 490.666667 490.666667-219.68 490.666667-490.666667S804.32 42.666667 533.333333 42.666667z m342.086667 760.253333c-29.266667-16-61.566667-29.633333-96.166667-40.853333 18.713333-63.493333 29.413333-134 31.153334-207.4h170.42a445.853333 445.853333 0 0 1-94.413334 254.446666q-5.4-3.113333-10.993333-6.193333z m-695.166667 6.193333A445.853333 445.853333 0 0 1 85.84 554.666667h170.42c1.74 73.373333 12.44 143.906667 31.153333 207.4-34.6 11.22-66.9 24.886667-96.166666 40.853333q-5.593333 3.08-10.993334 6.193333z m10.993334-545.366666c29.266667 15.966667 61.566667 29.633333 96.166666 40.853333-18.713333 63.493333-29.413333 134-31.153333 207.4H85.84a445.866667 445.866667 0 0 1 94.413333-254.446667q5.4 3.113333 10.993334 6.193334zM554.666667 341.073333c64.34-1.526667 126.5-9.94 183.64-24.606666 17.6 59.6 27.706667 126.106667 29.426666 195.533333H554.666667z m0-42.666666V87.226667c52.386667 9.293333 101.793333 52.666667 140.96 124.453333a502.986667 502.986667 0 0 1 29.153333 64.24c-52.853333 13.313333-110.4 21-170.113333 22.48z m-42.666667-211.18V298.4c-59.713333-1.48-117.26-9.166667-170.113333-22.48a502.986667 502.986667 0 0 1 29.153333-64.24C410.206667 139.886667 459.613333 96.52 512 87.226667z m0 253.846666V512H298.933333c1.72-69.426667 11.826667-135.933333 29.426667-195.533333 57.14 14.666667 119.3 23.08 183.64 24.606666zM298.933333 554.666667H512v170.926666c-64.34 1.526667-126.5 9.94-183.64 24.606667-17.6-59.6-27.693333-126.106667-29.426667-195.533333zM512 768.266667v211.173333c-52.386667-9.293333-101.793333-52.666667-140.96-124.453333a502.986667 502.986667 0 0 1-29.153333-64.24c52.853333-13.313333 110.4-21 170.113333-22.48z m42.666667 211.173333V768.266667c59.713333 1.48 117.26 9.166667 170.113333 22.48a502.986667 502.986667 0 0 1-29.153333 64.24c-39.166667 71.793333-88.573333 115.16-140.96 124.453333z m0-253.846667V554.666667h213.066666c-1.72 69.426667-11.826667 135.933333-29.426666 195.533333-57.14-14.666667-119.3-23.08-183.64-24.606667zM810.406667 512c-1.74-73.373333-12.406667-143.906667-31.153334-207.4 34.6-11.22 66.9-24.886667 96.166667-40.853333q5.586667-3.053333 10.993333-6.193334A445.866667 445.866667 0 0 1 980.826667 512zM858 224.626667c-1 0.553333-2 1.113333-3 1.666666-27.053333 14.753333-56.98 27.413333-89.1 37.826667a546.88 546.88 0 0 0-32.806667-72.873333c-18.113333-33.206667-38.526667-61.333333-60.926666-84A448.106667 448.106667 0 0 1 858 224.626667z m-463.473333-117.333334c-22.4 22.666667-42.813333 50.78-60.926667 84a546 546 0 0 0-32.806667 72.873334c-32.126667-10.46-62.06-23.12-89.113333-37.873334-1.013333-0.553333-2-1.113333-3-1.666666a448.106667 448.106667 0 0 1 185.833333-117.366667zM208.666667 842.04c1-0.553333 2-1.113333 3-1.666667 27.053333-14.753333 56.98-27.413333 89.1-37.826666a546 546 0 0 0 32.806666 72.873333c18.113333 33.206667 38.526667 61.333333 60.926667 84A448.106667 448.106667 0 0 1 208.666667 842.04z m463.473333 117.333333c22.4-22.666667 42.813333-50.78 60.926667-84a546.88 546.88 0 0 0 32.806666-72.873333c32.12 10.413333 62.046667 23.073333 89.1 37.826667 1.013333 0.553333 2 1.113333 3 1.666666a448.106667 448.106667 0 0 1-185.82 117.413334z"></path>
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4 text-gray-400 flex-shrink-0" viewBox="0 0 1024 1024" fill="currentColor">
-                      <path d="M850.189474 41.229474H180.547368c-78.147368 0-141.473684 63.595789-141.473684 141.473684v410.677895c0 78.147368 63.595789 141.473684 141.473684 141.473684h307.738948v191.056842H249.802105c-14.821053 0-26.947368 12.126316-26.947368 26.947368s12.126316 26.947368 26.947368 26.947369h531.132632c14.821053 0 26.947368-12.126316 26.947368-26.947369s-12.126316-26.947368-26.947368-26.947368h-238.484211v-191.056842h307.738948c78.147368 0 141.473684-63.595789 141.473684-141.473684V182.703158c0-78.147368-63.595789-141.473684-141.473684-141.473684z m87.578947 552.151579c0 48.235789-39.343158 87.578947-87.578947 87.578947H180.547368c-48.235789 0-87.578947-39.343158-87.578947-87.578947V182.703158c0-48.235789 39.343158-87.578947 87.578947-87.578947h669.372632c48.235789 0 87.578947 39.343158 87.578947 87.578947v410.677895z"></path>
-                    </svg>
-                  )}
-                  <ChevronDown className="w-3 h-3 text-gray-400" />
-                </button>
-              </div>
-              <input type="text" placeholder={searchMode === 'web' ? '搜索网络内容...' : '搜索本地工具...'} value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && searchQuery.trim() && searchMode === 'web') { window.open(`https://www.baidu.com/s?wd=${encodeURIComponent(searchQuery.trim())}`, '_blank') } }}
-                className="block w-full h-12 pl-[100px] pr-[72px] bg-white/50 backdrop-blur-md border border-white/60 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:bg-white/80 transition-all text-base placeholder-gray-400 text-gray-800 shadow-sm" />
-              <div className="absolute right-0 inset-y-0 flex items-center pr-11 pointer-events-none">
-                <Search className="w-5 h-5 text-gray-400" />
-              </div>
-              {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600">
-                  <X className="h-5 w-5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 flex-1 justify-end min-w-0">
-            {/* Todos */}
-            {user && (
-              <div className="relative flex-shrink-0">
-                <button ref={todoBtnRef} onClick={() => { setShowTodos(!showTodos); if (!showTodos) fetchTodos() }}
-                  className="relative w-10 h-10 rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:shadow-md transition-all">
-                  <CheckSquare className="w-5 h-5" />
-                  {todoBadge && (
-                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center shadow-md">
-                      {todoBadge}
-                    </span>
-                  )}
-                </button>
-
-                {/* Todo Panel */}
-                {showTodos && (
-                  <div ref={todoPanelRef} className="absolute right-0 top-full mt-2 z-50 w-80 sm:w-96 bg-white/95 backdrop-blur-xl border border-gray-200/60 shadow-xl rounded-2xl p-4 max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center justify-between mb-3 px-1">
-                        <span className="text-xs font-semibold text-gray-500">待办事项</span>
-                        <span className="text-xs text-gray-400">{incompleteTodoCount} 项未完成</span>
-                      </div>
-                      <div className="flex gap-2 mb-3">
-                        <input value={newTodo} onChange={e => setNewTodo(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') handleAddTodo() }}
-                          placeholder="添加待办事项..."
-                          className="flex-1 h-10 px-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-                        <button onClick={handleAddTodo} className="h-10 px-4 rounded-xl bg-blue-500 text-white text-xs font-medium hover:bg-blue-600">添加</button>
-                      </div>
-                      <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
-                        {todoList.length === 0 ? (
-                          <p className="text-sm text-gray-400 text-center py-8">暂无待办事项</p>
-                        ) : (
-                          todoList.map((todo: any) => (
-                            <div key={todo.id} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-all ${todo.is_completed === 1 ? 'text-gray-400' : 'text-gray-700'}`}>
-                              <button onClick={() => handleToggleTodo(todo.id, todo.is_completed)}
-                                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${todo.is_completed === 1 ? 'bg-blue-500 border-blue-500' : 'border-gray-300 hover:border-blue-400'}`}>
-                                {todo.is_completed === 1 && <span className="text-white text-xs font-bold">✓</span>}
-                              </button>
-                              <span className={`flex-1 truncate ${todo.is_completed === 1 ? 'line-through' : ''}`}>{todo.content}</span>
-                              <button onClick={() => handleDeleteTodo(todo.id)} className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0">
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
-              </div>
-            )}
-
-            {/* Notifications Bell */}
-            {user && (
-              <div className="relative flex-shrink-0">
-                <button ref={notifBtnRef} onClick={() => { setShowNotifications(!showNotifications); if (!showNotifications) fetchNotifications() }}
-                  className="relative w-10 h-10 rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:shadow-md transition-all">
-                  <Bell className="w-5 h-5" />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shadow-md">
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </span>
-                  )}
-                </button>
-
-                {/* Notification Panel */}
-                {showNotifications && (
-                  <div ref={notifPanelRef} className="absolute right-0 top-full mt-2 z-50 w-80 sm:w-96 bg-white/95 backdrop-blur-xl border border-gray-200/60 shadow-xl rounded-2xl p-3 max-h-96 overflow-y-auto" onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center justify-between mb-2 px-1">
-                        <span className="text-xs font-semibold text-gray-500">通知</span>
-                        {unreadCount > 0 && (
-                          <button onClick={markNotificationsRead} className="text-xs text-blue-500 hover:text-blue-600">全部标为已读</button>
-                        )}
-                      </div>
-                      {notifications.length === 0 ? (
-                        <p className="text-sm text-gray-400 text-center py-8">暂无通知</p>
-                      ) : (
-                        <div className="space-y-1">
-                          {notifications.map((n: any) => (
-                            <div key={n.id} className={`flex items-start gap-3 px-3 py-2.5 rounded-xl text-sm ${n.is_read ? 'text-gray-500' : 'text-gray-800 bg-blue-50/50'}`}>
-                              <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 font-bold text-xs overflow-hidden shrink-0">
-                                {n.actor_avatar ? <img src={n.actor_avatar} className="w-full h-full object-cover" /> : n.actor_name?.charAt(0)?.toUpperCase() || '?'}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm leading-relaxed">{n.message}</p>
-                                <p className="text-xs text-gray-400 mt-0.5">{new Date(n.created_at + 'Z').toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                              </div>
-                              {!n.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1.5" />}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-              </div>
-            )}
-
-            {/* Avatar — top-right */}
-            <button onClick={handleAvatarClick} className={`flex items-center justify-center font-bold shadow-sm hover:shadow-md transition-all flex-shrink-0 overflow-hidden ${user ? 'w-10 h-10 rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 text-gray-500 ring-2 ring-gray-200/60' : 'h-10 px-4 rounded-2xl bg-blue-500 text-white hover:bg-blue-600 text-sm'}`}>
-              {user?.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : user ? user.nickname?.charAt(0)?.toUpperCase() || <User className="w-5 h-5" /> : '立即登录'}
-            </button>
-          </div>
-        </header>
+        )}
+        {(sidebarCollapsed || focusMode) && (
+          <button onClick={toggleFocusMode} title={focusMode ? t('展示链接卡片') : t('隐藏链接卡片')}
+            className={`hidden lg:flex fixed top-4 z-40 w-10 h-10 items-center justify-center text-gray-400/80 hover:text-gray-700 transition-all ${weatherWidget && weatherData ? 'opacity-0 hover:opacity-100 focus-visible:opacity-100' : ''} ${sidebarCollapsed ? 'left-14' : 'left-4'}`}>
+            {focusMode ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+          </button>
+        )}
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto pt-4 px-6 sm:px-8 lg:px-10 pb-6 scroll-smooth"
+        <div className="flex-1 overflow-y-auto pt-6 px-6 sm:px-8 lg:px-10 pb-6 scroll-smooth [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
           onContextMenu={(e) => { if (activeNav === 'home' && !searchQuery.trim() && user) { e.preventDefault(); setHomeContextMenu({ x: e.clientX, y: e.clientY }) } }}>
-          <div className="max-w-6xl mx-auto space-y-8">{renderContent()}</div>
+          <div className={`max-w-6xl mx-auto ${homeSticky ? 'h-full flex flex-col' : 'space-y-8'}`}>{renderContent()}</div>
         </div>
 
-        <footer className="h-14 border-t border-white/20 bg-white/10 backdrop-blur-xl flex items-center justify-center px-6 sm:px-8 flex-shrink-0 z-20">
-          <div className="text-xs text-gray-500 font-medium">&copy; 2026 LinkPad 版权所有<span className="hidden sm:inline"> · 关注链接仓库 · 首页同步更新</span></div>
-        </footer>
       </main>
 
-      {/* Backdrop for panels */}
-      {(showTodos || showNotifications) && (
-        <div className="fixed inset-0 z-40 pointer-events-none" />
-      )}
-
       {/* Modals */}
-      {showAuth && <AuthModal initialTab={welcomeAuthTab} onClose={() => setShowAuth(false)} />}
+      <DeadLinksModal open={showDeadLinks} links={deadLinks} busy={removingDead}
+        onClose={() => setShowDeadLinks(false)} onRemove={removeDeadLinks} />
+      {showAuth && <AuthModal initialTab={welcomeAuthTab} initialError={authErrorMsg} onClose={() => { setShowAuth(false); setAuthErrorMsg('') }} />}
       {showWelcome && (
         <WelcomeModal
           onClose={() => closeWelcome()}
@@ -1520,7 +2102,33 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
           }}
         />
       )}
-      {showUserPanel && <UserPanel onClose={() => setShowUserPanel(false)} />}
+      {showUserPanel && (
+        <UserPanel onClose={() => { setShowUserPanel(false); toggleSidebar(false) }}
+          onOpenPanelStyleModal={() => { setShowUserPanel(false); setShowPanelStyle(true) }}
+          onOpenWallpaperManager={() => { setShowUserPanel(false); setShowWallpaperManager(true) }}
+          notifications={notifications} unreadCount={unreadCount}
+          onFetchNotifications={fetchNotifications} onMarkNotificationsRead={markNotificationsRead} />
+      )}
+      {showPanelStyle && (
+        <PanelStyleModal onClose={() => setShowPanelStyle(false)}
+          sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}
+          freqRows={freqRows} onSetFreqRows={setFreqRowsPersist}
+          cardStyle={cardStyle} onSetCardStyle={setCardStylePersist}
+          stickyTop={stickyTop} onToggleStickyTop={setStickyTopPersist}
+          crtEffect={crtEffect} onToggleCrtEffect={setCrtEffectPersist}
+          uiFont={uiFont} onSetUiFont={setUiFontPersist} />
+      )}
+      {showWallpaperManager && (
+        <WallpaperManagerModal
+          onClose={() => setShowWallpaperManager(false)}
+          list={userWallpapers}
+          current={wallpaper}
+          onSelect={applyWallpaper}
+          onChanged={loadUserWallpapers}
+          autoSeconds={wallpaperAuto}
+          onAutoChange={setAutoSeconds}
+        />
+      )}
       {showCreateRepo && (
         <CreateRepoModal
           onClose={() => setShowCreateRepo(false)}
@@ -1536,36 +2144,37 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {showCreateCat && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword('') }} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
             {parentCatId === '__select__' ? (
               <>
-                <h3 className="font-bold text-gray-800 mb-4">创建子分类</h3>
+                <h3 className="font-bold text-gray-800 mb-4">{t('创建子分类')}</h3>
                 <select value="" onChange={e => setParentCatId(e.target.value)}
                   className="w-full h-12 px-4 mb-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
-                  <option value="" disabled>请选择父菜单</option>
+                  <option value="" disabled>{t('请选择父菜单')}</option>
                   {categoryList.filter((c: any) => !c.parent_id).map((cat: any) => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    <option key={cat.id} value={cat.id}>{t(cat.name)}</option>
                   ))}
                 </select>
-                <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="子分类名称" autoFocus
+                <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder={t('子分类名称')} autoFocus
                   className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-                <input value={newCatPassword} onChange={e => setNewCatPassword(e.target.value)} type="password" placeholder="密码（选填）"
+                <input value={newCatPassword} onChange={e => setNewCatPassword(e.target.value)} type="password" placeholder={t('密码（选填）')}
                   className="w-full h-12 px-4 mt-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                 <div className="flex gap-2 mt-3">
-                  <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
-                  <button onClick={createCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">创建</button>
+                  <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                  <button onClick={createCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('创建')}</button>
                 </div>
               </>
             ) : (
               <>
-                <h3 className="font-bold text-gray-800 mb-4">创建菜单</h3>
-                <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="菜单名称" autoFocus
+                <h3 className="font-bold text-gray-800 mb-4">{t('创建菜单')}</h3>
+                <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder={t('菜单名称')} autoFocus
                   className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-                <input value={newCatPassword} onChange={e => setNewCatPassword(e.target.value)} type="password" placeholder="密码（选填）"
+                <input value={newCatPassword} onChange={e => setNewCatPassword(e.target.value)} type="password" placeholder={t('密码（选填）')}
                   className="w-full h-12 px-4 mt-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                <IconPicker value={newCatIcon} onChange={setNewCatIcon} />
                 <div className="flex gap-2 mt-3">
-                  <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
-                  <button onClick={createCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">创建</button>
+                  <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword(''); setNewCatIcon('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                  <button onClick={createCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('创建')}</button>
                 </div>
               </>
             )}
@@ -1577,29 +2186,30 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {editCatId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => { setEditCatId(null); setEditCatPassword('') }} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
             {(() => {
               const cat = categoryList.find(c => c.id === editCatId);
               const isSubCat = cat?.parent_id;
               return (
                 <>
-                  <h3 className="font-bold text-gray-800 mb-4">{isSubCat ? '编辑子分类' : '编辑菜单'}</h3>
+                  <h3 className="font-bold text-gray-800 mb-4">{isSubCat ? t('编辑子分类') : t('编辑菜单')}</h3>
                   {isSubCat && (
-                    <p className="text-xs text-blue-600 mb-3 bg-blue-50 px-3 py-1.5 rounded-lg inline-block">父菜单：{categoryList.find(c => c.id === cat?.parent_id)?.name}</p>
+                    <p className="text-xs text-blue-600 mb-3 bg-blue-50 px-3 py-1.5 rounded-lg inline-block">{t('父菜单：')}{t(categoryList.find(c => c.id === cat?.parent_id)?.name || '')}</p>
                   )}
-                  <input value={editCatName} onChange={e => setEditCatName(e.target.value)} placeholder={isSubCat ? '子分类名称' : '菜单名称'} autoFocus
+                  <input value={editCatName} onChange={e => setEditCatName(e.target.value)} placeholder={isSubCat ? t('子分类名称') : t('菜单名称')} autoFocus
                     onKeyDown={e => { if (e.key === 'Enter') updateCategory() }}
                     className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-                  <input value={editCatPassword} onChange={e => setEditCatPassword(e.target.value)} type="password" placeholder={cat?.password ? '密码（留空不修改）' : '密码（选填）'}
+                  <input value={editCatPassword} onChange={e => setEditCatPassword(e.target.value)} type="password" placeholder={cat?.password ? t('密码（留空不修改）') : t('密码（选填）')}
                     className="w-full h-12 px-4 mt-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                   {cat?.password && (
                     <button onClick={clearCategoryPassword} className="mt-2 text-xs text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors">
-                      <Lock className="w-3 h-3" /> 此分类已加密，点击取消加密
+                      <Lock className="w-3 h-3" /> {t('此分类已加密，点击取消加密')}
                     </button>
                   )}
+                  {!isSubCat && <IconPicker value={editCatIcon} onChange={setEditCatIcon} />}
                   <div className="flex gap-2 mt-3">
-                    <button onClick={() => { setEditCatId(null); setEditCatPassword('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
-                    <button onClick={updateCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">保存</button>
+                    <button onClick={() => { setEditCatId(null); setEditCatPassword(''); setEditCatIcon('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                    <button onClick={updateCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('保存')}</button>
                   </div>
                 </>
               );
@@ -1611,64 +2221,146 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {/* Add Tool Modal */}
       {showAddTool && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => { setShowAddTool(false); setAddToolCatError('') }} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
-            <h3 className="font-bold text-gray-800 mb-4">添加链接</h3>
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={closeAddTool} />
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
+            <h3 className="font-bold text-gray-800 mb-4">{t('添加链接')}</h3>
             <div className="space-y-3">
-              {/* Icon preview + selector */}
-              <div className="flex flex-col items-center gap-2 pb-2">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-md overflow-hidden"
-                  style={addToolIcon && isImageIcon(addToolIcon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: toolPalette[addToolColor]?.bg || '#3B82F6', color: toolPalette[addToolColor]?.text || '#FFFFFF' }}>
-                  {addToolIcon && isImageIcon(addToolIcon) ? (
-                    <img src={addToolIcon} className="w-full h-full object-contain p-2" />
-                  ) : (
-                    <span className={iconFontSize(addToolTextIcon || addToolName)}>{addToolTextIcon || addToolName.charAt(0).toUpperCase() || '?'}</span>
-                  )}
-                </div>
-                <div className="flex gap-1 flex-wrap justify-center">
-                  {toolPalette.map((p, i) => (
-                    <button key={i} type="button" onClick={() => setAddToolColor(i)}
-                      className="w-5 h-5 rounded-full border border-white/60 shadow-sm transition-transform hover:scale-110"
-                      style={{ backgroundColor: p.bg, transform: i === addToolColor ? 'scale(1.3)' : undefined }} />
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <input ref={addToolFileRef} type="file" accept="image/*" className="hidden" onChange={handleAddToolIconUpload} />
-                  <button type="button" onClick={() => addToolFileRef.current?.click()} className="px-3 py-1.5 rounded-xl bg-blue-500 text-white text-xs hover:bg-blue-600 transition-all"><Camera className="w-3 h-3 inline mr-1" />上传图标</button>
-                  {addToolIcon && isImageIcon(addToolIcon) && <button type="button" onClick={() => { setAddToolIcon(''); if (addToolFileRef.current) addToolFileRef.current.value = '' }} className="text-xs text-red-400 hover:text-red-600">清除</button>}
-                </div>
-                <input value={addToolTextIcon} onChange={e => setAddToolTextIcon(e.target.value)} placeholder="图标文字（最多4字）" maxLength={4} className="w-full h-10 px-4 bg-white/60 border border-white/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-xs text-center" />
-              </div>
-              <input value={addToolName} onChange={e => setAddToolName(e.target.value)} placeholder="名称" className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              <input value={addToolName} onChange={e => setAddToolName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               <input value={addToolUrl} onChange={e => {
                   setAddToolUrl(e.target.value)
                   const u = e.target.value
+                  scheduleAddToolDesc(u)
                   if (!u) return
-                  faviconCache.resolve(u).then((r) => {
+                  // 自动识别名称：名称为空时取域名（GitHub 取最后路径段），与仓库添加行为一致
+                  if (!addToolName) { const n = guessNameFromUrl(u); if (n) setAddToolName(n) }
+                  if (addToolIconSrc === 'auto') faviconCache.resolve(u).then((r) => {
                     if (r.icon_url) {
                       setAddToolIcon(r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url))
                     }
                   })
-                }} placeholder="地址（https://...）" className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={addToolDesc} onChange={e => setAddToolDesc(e.target.value)} placeholder="描述（选填）" className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={addToolPassword} onChange={e => setAddToolPassword(e.target.value)} type="password" placeholder="密码（选填）" className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                  // 重复检测：输入停止 500ms 后查询首页是否已存在相同链接
+                  if (addToolDupTimer.current) clearTimeout(addToolDupTimer.current)
+                  setAddToolDups([])
+                  if (u.trim().length > 3) {
+                    addToolDupTimer.current = setTimeout(() => {
+                      tools.duplicates(u.trim()).then((r: any) => { setAddToolDups(r.duplicates || []); setAddToolDupType(r.matchType === 'domain' ? 'domain' : 'exact') }).catch(() => {})
+                    }, 500)
+                  }
+                }} onBlur={() => {
+                  // 失焦自动补全协议：未输入 http(s):// 时补 https://，并重新识别名称与图标
+                  const u = addToolUrl.trim()
+                  if (u && !/^https?:\/\//i.test(u)) {
+                    const fixed = 'https://' + u
+                    setAddToolUrl(fixed)
+                    scheduleAddToolDesc(fixed)
+                    if (!addToolName) { const n = guessNameFromUrl(fixed); if (n) setAddToolName(n) }
+                    if (addToolIconSrc === 'auto') faviconCache.resolve(fixed).then((r) => {
+                      if (r.icon_url) {
+                        setAddToolIcon(r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url))
+                      }
+                    })
+                  }
+                }} placeholder={t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              {addToolDups.length > 0 && (
+                <div className="rounded-2xl bg-amber-50/80 border border-amber-200/60 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5 text-amber-600 font-medium text-xs mb-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {addToolDupType === 'domain' ? t('首页已存在 {n} 个相同域名的链接', { n: addToolDups.length }) : t('首页已存在 {n} 个相同链接', { n: addToolDups.length })}
+                  </div>
+                  <div className="space-y-1">
+                    {addToolDups.map((d: any) => (
+                      <div key={d.id} className="flex items-center justify-between gap-2 text-xs text-gray-600">
+                        <span className="flex items-center gap-1.5 truncate">
+                          {d.icon && isImageIcon(d.icon)
+                            ? <img src={d.icon} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" />
+                            : <span className="w-4 h-4 rounded shrink-0 inline-flex items-center justify-center text-[9px] font-bold text-white" style={{ backgroundColor: d.bg_color || '#94a3b8' }}>{(d.name || '?').charAt(0).toUpperCase()}</span>}
+                          <span className="truncate">{d.name}</span>
+                        </span>
+                        <span className="shrink-0 text-gray-400">{d.category_name ? t(d.category_name) : t('未分类')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <LinkDescriptionInput
+                value={addToolDesc}
+                url={addToolUrl}
+                loading={addToolDescLoading}
+                onChange={setAddToolDesc}
+                onFetch={() => fetchAddToolDesc(addToolUrl, true)}
+              />
+              <input value={addToolPassword} onChange={e => setAddToolPassword(e.target.value)} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               {/* Category selector */}
                <select value={addToolCat} onChange={e => { setAddToolCat(e.target.value); setAddToolCatError('') }}
                   className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
-                  <option value="">选择分类</option>
+                  <option value="">{t('选择分类')}</option>
                   {categoryList.filter((c: any) => !c.parent_id).map((cat: any) => (
-                    <optgroup key={cat.id} label={cat.name}>
-                      <option value={cat.id}>{cat.name} - 全部</option>
+                    <optgroup key={cat.id} label={t(cat.name)}>
+                      <option value={cat.id}>{t(cat.name)} - {t('全部')}</option>
                       {categoryList.filter((sc: any) => sc.parent_id === cat.id).map((sc: any) => (
-                        <option key={sc.id} value={sc.id}>{cat.name} &gt; {sc.name}</option>
+                        <option key={sc.id} value={sc.id}>{t(cat.name)} &gt; {t(sc.name)}</option>
                       ))}
                     </optgroup>
                   ))}
                 </select>
                 {addToolCatError && <p className="text-xs text-red-500">{addToolCatError}</p>}
+              {/* 图标来源 */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('图标来源')}</label>
+                <select value={addToolIconSrc} onChange={e => switchAddToolIconSrc(e.target.value as 'auto' | 'upload' | 'text')}
+                  className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
+                  <option value="auto">{t('自动获取')}</option>
+                  <option value="upload">{t('上传图标')}</option>
+                  <option value="text">{t('文字图标')}</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  {addToolIconSrc === 'auto' ? t('根据网址自动抓取网站图标') : addToolIconSrc === 'upload' ? t('上传本地图片作为图标') : t('使用文字生成图标，最多 4 个字')}
+                </p>
+              </div>
+              {/* 当前图标 */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('当前图标')}</label>
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-md overflow-hidden shrink-0"
+                    style={addToolIcon && isImageIcon(addToolIcon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: toolPalette[addToolColor]?.bg || '#3B82F6', color: toolPalette[addToolColor]?.text || '#FFFFFF' }}>
+                    {addToolRefreshing ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-current/60" />
+                    ) : addToolIcon && isImageIcon(addToolIcon) ? (
+                      <img src={addToolIcon} className="w-full h-full object-contain p-2" />
+                    ) : (
+                      <span className={iconFontSize(addToolTextIcon || addToolName)}>{addToolTextIcon || addToolName.slice(0, 4) || '?'}</span>
+                    )}
+                  </div>
+                  {addToolIconSrc === 'auto' && (
+                    <button type="button" onClick={() => switchAddToolIconSrc('auto')} disabled={addToolRefreshing || !addToolUrl.trim()}
+                      className="px-3 py-1.5 rounded-xl bg-white/60 border border-white/80 text-xs text-gray-600 hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1 transition-all">
+                      <RefreshCw className={`w-3 h-3 ${addToolRefreshing ? 'animate-spin' : ''}`} />{t('刷新')}
+                    </button>
+                  )}
+                  {addToolIconSrc === 'upload' && (
+                    <>
+                      <input ref={addToolFileRef} type="file" accept="image/*" className="hidden" onChange={handleAddToolIconUpload} />
+                      <button type="button" onClick={() => addToolFileRef.current?.click()} className="px-3 py-1.5 rounded-xl bg-blue-500 text-white text-xs hover:bg-blue-600 transition-all"><Camera className="w-3 h-3 inline mr-1" />{t('上传图标')}</button>
+                      {addToolIcon && isImageIcon(addToolIcon) && <button type="button" onClick={() => { setAddToolIcon(''); if (addToolFileRef.current) addToolFileRef.current.value = '' }} className="text-xs text-red-400 hover:text-red-600">{t('清除')}</button>}
+                    </>
+                  )}
+                  {addToolIconSrc === 'text' && (
+                    <input value={addToolTextIcon} onChange={e => setAddToolTextIcon(e.target.value)} placeholder={t('图标文字（最多4字）')} maxLength={4}
+                      className="flex-1 h-11 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-sm text-center" />
+                  )}
+                </div>
+                {addToolIconSrc === 'text' && (
+                  <div className="flex gap-1 flex-wrap mt-2">
+                    {toolPalette.map((p, i) => (
+                      <button key={i} type="button" onClick={() => setAddToolColor(i)}
+                        className="w-5 h-5 rounded-full border border-white/60 shadow-sm transition-transform hover:scale-110"
+                        style={{ backgroundColor: p.bg, transform: i === addToolColor ? 'scale(1.3)' : undefined }} />
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="flex gap-2">
-                <button onClick={() => { setShowAddTool(false); setAddToolCatError('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
-                <button onClick={createTool} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">添加</button>
+                <button onClick={closeAddTool} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                <button onClick={createTool} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('添加')}</button>
               </div>
             </div>
           </div>
@@ -1679,8 +2371,8 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {editTool && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setEditTool(null)} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
-            <h3 className="font-bold text-gray-800 mb-4">编辑链接</h3>
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
+            <h3 className="font-bold text-gray-800 mb-4">{t('编辑链接')}</h3>
             <div className="space-y-3">
               {/* Icon preview + editor */}
               <div className="flex flex-col items-center gap-2 pb-2">
@@ -1703,14 +2395,14 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 )}
                 <div className="flex items-center gap-2">
                   <input ref={editToolFileRef} type="file" accept="image/*" className="hidden" onChange={handleEditToolIconUpload} />
-                  <button type="button" onClick={() => editToolFileRef.current?.click()} disabled={editToolIconUploading} className="px-3 py-1.5 rounded-xl bg-blue-500 text-white text-xs hover:bg-blue-600"><Camera className="w-3 h-3 inline mr-1" />上传图标</button>
-                  {editTool.icon && isImageIcon(editTool.icon) && <button type="button" onClick={() => { setEditTool({ ...editTool, icon: '' }); if (editToolFileRef.current) editToolFileRef.current.value = '' }} className="text-xs text-red-400 hover:text-red-600">清除</button>}
+                  <button type="button" onClick={() => editToolFileRef.current?.click()} disabled={editToolIconUploading} className="px-3 py-1.5 rounded-xl bg-blue-500 text-white text-xs hover:bg-blue-600"><Camera className="w-3 h-3 inline mr-1" />{t('上传图标')}</button>
+                  {editTool.icon && isImageIcon(editTool.icon) && <button type="button" onClick={() => { setEditTool({ ...editTool, icon: '' }); if (editToolFileRef.current) editToolFileRef.current.value = '' }} className="text-xs text-red-400 hover:text-red-600">{t('清除')}</button>}
                 </div>
                 {(!editTool.icon || !isImageIcon(editTool.icon)) && (
-                  <input value={editTool.icon || ''} onChange={e => setEditTool({ ...editTool, icon: e.target.value })} placeholder="图标文字（最多4字）" maxLength={4} className="w-full h-10 px-4 bg-white/60 border border-white/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-xs text-center" />
+                  <input value={editTool.icon || ''} onChange={e => setEditTool({ ...editTool, icon: e.target.value })} placeholder={t('图标文字（最多4字）')} maxLength={4} className="w-full h-10 px-4 bg-white/60 border border-white/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-xs text-center" />
                 )}
               </div>
-              <input value={editTool.name} onChange={e => setEditTool({ ...editTool, name: e.target.value })} placeholder="名称" className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              <input value={editTool.name} onChange={e => setEditTool({ ...editTool, name: e.target.value })} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               <input value={editTool.url} onChange={e => {
                   setEditTool({ ...editTool, url: e.target.value })
                   const u = e.target.value
@@ -1720,25 +2412,25 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                       setEditTool((prev: any) => ({ ...prev, icon: r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url) }))
                     }
                   })
-                }} placeholder="地址" className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={editTool.desc || ''} onChange={e => setEditTool({ ...editTool, desc: e.target.value })} placeholder="描述" className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={editTool.password || ''} onChange={e => setEditTool({ ...editTool, password: e.target.value })} type="password" placeholder="密码（选填）" className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                }} placeholder={t('地址')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              <input value={editTool.desc || ''} onChange={e => setEditTool({ ...editTool, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              <input value={editTool.password || ''} onChange={e => setEditTool({ ...editTool, password: e.target.value })} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               {/* Category selector */}
               <select value={editTool.category_id || ''} onChange={e => setEditTool({ ...editTool, category_id: e.target.value })}
                 className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
-                <option value="">选择分类</option>
+                <option value="">{t('选择分类')}</option>
                 {categoryList.filter((c: any) => !c.parent_id).map((cat: any) => (
-                  <optgroup key={cat.id} label={cat.name}>
-                    <option value={cat.id}>{cat.name} - 全部</option>
+                  <optgroup key={cat.id} label={t(cat.name)}>
+                    <option value={cat.id}>{t(cat.name)} - {t('全部')}</option>
                     {categoryList.filter((sc: any) => sc.parent_id === cat.id).map((sc: any) => (
-                      <option key={sc.id} value={sc.id}>{cat.name} &gt; {sc.name}</option>
+                      <option key={sc.id} value={sc.id}>{t(cat.name)} &gt; {t(sc.name)}</option>
                     ))}
                   </optgroup>
                 ))}
               </select>
               <div className="flex gap-2">
-                <button onClick={() => setEditTool(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
-                <button onClick={updateTool} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">保存</button>
+                <button onClick={() => setEditTool(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                <button onClick={updateTool} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('保存')}</button>
               </div>
             </div>
           </div>
@@ -1749,17 +2441,17 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {catContextMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setCatContextMenu(null)} />
-          <div className="fixed z-50 bg-white/90 backdrop-blur-xl border border-white/60 shadow-xl rounded-2xl p-2 w-44" style={{ left: catContextMenu.x, top: catContextMenu.y }}>
+          <div className="fixed z-50 bg-white border border-white/60 shadow-xl rounded-2xl p-2 w-44" style={{ left: catContextMenu.x, top: catContextMenu.y }}>
            {!catContextMenu.cat.parent_id && (
              <button onClick={() => { setParentCatId(catContextMenu.cat.id); setNewCatName(''); setShowCreateCat(true); setCatContextMenu(null) }}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-blue-600 hover:bg-blue-50"><FolderPlus className="w-4 h-4" /> 添加子分类</button>
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('添加子分类')}</span><FolderPlus className="w-4 h-4" /></button>
            )}
-           <button onClick={() => { setAddToolCat(catContextMenu.cat.id); setAddToolCatError(''); setShowAddTool(true); setCatContextMenu(null) }}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-blue-600 hover:bg-blue-50"><Link2 className="w-4 h-4" /> 创建链接</button>
-            <button onClick={() => { setEditCatId(catContextMenu.cat.id); setEditCatName(catContextMenu.cat.name); setCatContextMenu(null) }}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-700 hover:bg-white/60"><Edit3 className="w-4 h-4" /> 编辑</button>
-            <button onClick={() => setConfirmAction({ message: '确定删除该分类及其所有链接？', onConfirm: () => deleteCategory(catContextMenu.cat.id) })}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-red-500 hover:bg-red-50"><Trash2 className="w-4 h-4" /> 删除</button>
+           <button onClick={() => { setAddToolCat(catContextMenu.cat.id); setAddToolCatError(''); setAddToolDups([]); setAddToolIconSrc('auto'); setShowAddTool(true); setCatContextMenu(null) }}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('创建链接')}</span><Link2 className="w-4 h-4" /></button>
+            <button onClick={() => { setEditCatId(catContextMenu.cat.id); setEditCatName(catContextMenu.cat.name); setEditCatIcon(catContextMenu.cat.icon || ''); setCatContextMenu(null) }}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('编辑')}</span><Edit3 className="w-4 h-4" /></button>
+            <button onClick={() => setConfirmAction({ message: t('确定删除该分类及其所有链接？'), onConfirm: () => deleteCategory(catContextMenu.cat.id) })}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('删除')}</span><Trash2 className="w-4 h-4" /></button>
           </div>
         </>
       )}
@@ -1768,9 +2460,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {repoContextMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setRepoContextMenu(null)} />
-          <div className="fixed z-50 bg-white/90 backdrop-blur-xl border border-white/60 shadow-xl rounded-2xl p-2 w-40" style={{ left: repoContextMenu.x, top: repoContextMenu.y }}>
-            <button onClick={() => setConfirmAction({ message: '确定删除该仓库？取消关注后该仓库的链接将从首页同步删除', onConfirm: () => deleteRepo(repoContextMenu.repo.id) })}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-red-500 hover:bg-red-50"><Trash2 className="w-4 h-4" /> 删除</button>
+          <div className="fixed z-50 bg-white border border-white/60 shadow-xl rounded-2xl p-2 w-40" style={{ left: repoContextMenu.x, top: repoContextMenu.y }}>
+            <button onClick={() => setConfirmAction({ message: t('确定删除该仓库？取消关注后该仓库的链接将从首页同步删除'), onConfirm: () => deleteRepo(repoContextMenu.repo.id) })}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('删除')}</span><Trash2 className="w-4 h-4" /></button>
           </div>
         </>
       )}
@@ -1779,11 +2471,54 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {toolContextMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setToolContextMenu(null)} />
-          <div className="fixed z-50 bg-white/90 backdrop-blur-xl border border-white/60 shadow-xl rounded-2xl p-2 w-40" style={{ left: toolContextMenu.x, top: toolContextMenu.y }}>
+          <div className="fixed z-50 bg-white border border-white/60 shadow-xl rounded-2xl p-2 w-40" style={{ left: toolContextMenu.x, top: toolContextMenu.y }}>
             <button onClick={() => { setEditTool({ ...toolContextMenu.tool }); setToolContextMenu(null) }}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-700 hover:bg-white/60"><Edit3 className="w-4 h-4" /> 编辑</button>
-            <button onClick={() => setConfirmAction({ message: '确定删除该链接？', onConfirm: () => deleteTool(toolContextMenu.tool.id) })}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-red-500 hover:bg-red-50"><Trash2 className="w-4 h-4" /> 删除</button>
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('编辑')}</span><Edit3 className="w-4 h-4" /></button>
+            <button onClick={() => setConfirmAction({ message: t('确定删除该链接？'), onConfirm: () => deleteTool(toolContextMenu.tool.id) })}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('删除')}</span><Trash2 className="w-4 h-4" /></button>
+          </div>
+        </>
+      )}
+
+      {/* Widget Context Menu */}
+      {widgetContextMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setWidgetContextMenu(null)} />
+          <div className="fixed z-50 bg-white border border-white/60 shadow-xl rounded-2xl p-2 w-40" style={{ left: widgetContextMenu.x, top: widgetContextMenu.y }}>
+            {/* 时间/搜索框：不支持尺寸与分类，仅可删除 */}
+            {widgetContextMenu.widget.type !== 'clock' && widgetContextMenu.widget.type !== 'search' && (
+              <>
+                <div className="px-3 py-1.5 text-[11px] text-gray-400">{t('组件尺寸')}</div>
+                <div className="flex gap-1 px-2 pb-1.5">
+                  {[1, 2, 3].map(n => (
+                    <button key={n} onClick={() => { updateWidget(widgetContextMenu.widget.id, { height: n }); setWidgetContextMenu(null) }}
+                      className={`flex-1 h-7 rounded-lg text-xs transition-all ${(widgetContextMenu.widget.height || 1) === n ? 'bg-blue-500 text-white font-medium' : 'text-gray-500 hover:bg-black/5'}`}>
+                      {t('{n}卡', { n })}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => { setWidgetEditTarget(widgetContextMenu.widget); setWidgetContextMenu(null) }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5">
+                  <span>{t('修改分类')}</span><FolderPlus className="w-4 h-4" />
+                </button>
+                <button onClick={() => { toggleWidgetFrequent(widgetContextMenu.widget.id); setWidgetContextMenu(null) }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5">
+                  {widgetContextMenu.widget.inFrequent ? <><span>{t('移出常用工具')}</span><CheckSquare className="w-4 h-4" /></> : <><span>{t('放入常用工具')}</span><Star className="w-4 h-4" /></>}
+                </button>
+              </>
+            )}
+            <button onClick={() => {
+              if (widgetContextMenu.widget.id === 'search-virtual') {
+                // 虚拟搜索框：写删除标记（不再默认展示）
+                localStorage.setItem('search_widget_removed', '1'); setSearchWidgetRemoved(true); setWidgetContextMenu(null)
+              } else if (widgetContextMenu.widget.id === 'clock-virtual') {
+                // 虚拟时钟（未登录）：写删除标记（不再默认展示）
+                localStorage.setItem('clock_widget_removed', '1'); setClockWidgetRemoved(true); setWidgetContextMenu(null)
+              } else {
+                setConfirmAction({ message: t('确定删除该组件？'), onConfirm: () => setWidgetList(prev => prev.filter(x => x.id !== widgetContextMenu.widget.id)) })
+              }
+            }}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('删除')}</span><Trash2 className="w-4 h-4" /></button>
           </div>
         </>
       )}
@@ -1792,11 +2527,11 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {confirmAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setConfirmAction(null)} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
             <p className="text-sm text-gray-700 mb-6 leading-relaxed">{confirmAction.message}</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmAction(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
-              <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 h-11 rounded-2xl bg-red-500 text-white hover:bg-red-600">确认</button>
+              <button onClick={() => setConfirmAction(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 h-11 rounded-2xl bg-red-500 text-white hover:bg-red-600">{t('确认')}</button>
             </div>
           </div>
         </div>
@@ -1806,30 +2541,30 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {linkPwdDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => { setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('') }} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">此链接需要密码</h3>
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('此链接需要密码')}</h3>
             <input type="password" value={linkPwdInput} onChange={e => { setLinkPwdInput(e.target.value); setLinkPwdError('') }}
               onKeyDown={e => { if (e.key === 'Enter') {
                 if (linkPwdInput === linkPwdDialog.tool.password) {
                   window.open(linkPwdDialog.url, '_blank')
                   setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('')
                 } else {
-                  setLinkPwdError('密码错误')
+                  setLinkPwdError(t('密码错误'))
                 }
               }}}
-              placeholder="请输入密码" autoFocus
+              placeholder={t('请输入密码')} autoFocus
               className="w-full h-12 px-4 mb-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
             {linkPwdError && <p className="text-xs text-red-500 mb-3">{linkPwdError}</p>}
             <div className="flex gap-2">
-              <button onClick={() => { setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
+              <button onClick={() => { setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
               <button onClick={() => {
                 if (linkPwdInput === linkPwdDialog.tool.password) {
                   window.open(linkPwdDialog.url, '_blank')
                   setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('')
                 } else {
-                  setLinkPwdError('密码错误')
+                  setLinkPwdError(t('密码错误'))
                 }
-              }} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">确认</button>
+              }} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('确认')}</button>
             </div>
           </div>
         </div>
@@ -1839,17 +2574,20 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {homeContextMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setHomeContextMenu(null)} />
-          <div className="fixed z-50 bg-white/90 backdrop-blur-xl border border-white/60 shadow-xl rounded-2xl p-2 w-48 space-y-0.5" style={{ left: homeContextMenu.x, top: homeContextMenu.y }}>
+          <div className="fixed z-50 bg-white border border-white/60 shadow-xl rounded-2xl p-2 w-48 space-y-0.5" style={{ left: homeContextMenu.x, top: homeContextMenu.y }}>
            <button onClick={() => { setHomeContextMenu(null); setParentCatId(''); setShowCreateCat(true) }}
-              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-blue-600 hover:bg-blue-50"><FolderPlus className="w-4 h-4" /> 创建菜单</button>
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('创建菜单')}</span><FolderPlus className="w-4 h-4" /></button>
            <button onClick={() => { setHomeContextMenu(null); setParentCatId('__select__'); setShowCreateCat(true) }}
-              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-blue-600 hover:bg-blue-50"><Layers className="w-4 h-4" /> 创建子分类</button>
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('创建子分类')}</span><Layers className="w-4 h-4" /></button>
             <div className="border-t border-white/60" />
-           <button onClick={() => { setHomeContextMenu(null); setAddToolCat(''); setAddToolCatError(''); setShowAddTool(true) }}
-             className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-blue-600 hover:bg-blue-50"><Link2 className="w-4 h-4" /> 创建链接</button>
+           <button onClick={() => { setHomeContextMenu(null); setAddToolCat(''); setAddToolCatError(''); setAddToolDups([]); setAddToolIconSrc('auto'); setShowAddTool(true) }}
+             className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('创建链接')}</span><Link2 className="w-4 h-4" /></button>
             <div className="border-t border-white/60" />
            <button onClick={() => { setHomeContextMenu(null); setShowWidgetSelector(true) }}
-              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-purple-600 hover:bg-purple-50"><Puzzle className="w-4 h-4" /> 添加组件</button>
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('添加组件')}</span><Puzzle className="w-4 h-4" /></button>
+            <div className="border-t border-white/60" />
+           <button onClick={() => { setHomeContextMenu(null); changeWallpaper() }}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('更换壁纸')}</span><ImageIcon className="w-4 h-4" /></button>
           </div>
         </>
       )}
@@ -1858,16 +2596,16 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {showAddToHome && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowAddToHome(false)} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">添加到首页</h3>
-            <p className="text-sm text-gray-500 mb-3">选择目标分类：</p>
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('添加到首页')}</h3>
+            <p className="text-sm text-gray-500 mb-3">{t('选择目标分类：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               {categoryList.map((cat: any) => (
                 <button key={cat.id} onClick={() => addToolToHome(cat.id)}
-                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{cat.name}</button>
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{t(cat.name)}</button>
               ))}
             </div>
-            <button onClick={() => setShowAddToHome(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
+            <button onClick={() => setShowAddToHome(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
           </div>
        </div>
      )}
@@ -1875,21 +2613,147 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {showWidgetSelector && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowWidgetSelector(false)} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">添加组件</h3>
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('添加组件')}</h3>
             <div className="space-y-1">
               <button onClick={() => { setShowWidgetSelector(false); setShowStockSearch(true) }}
                 className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">
-               <TrendingUp className="w-5 h-5 text-blue-500" />
-               <span>股票行情</span>
+               <TrendingUp className="w-5 h-5 text-gray-800" />
+               <span>{t('股票行情')}</span>
              </button>
               <button onClick={() => { setShowWidgetSelector(false); setShowGoldCategorySelect(true) }}
                 className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-600 transition-all">
-                <Gem className="w-5 h-5 text-amber-500" />
-                <span>黄金价格</span>
+                <Gem className="w-5 h-5 text-gray-800" />
+                <span>{t('黄金价格')}</span>
               </button>
+              <button onClick={() => { setShowWidgetSelector(false); setShowCountdownCategorySelect(true) }}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">
+                <CalendarDays className="w-5 h-5 text-gray-800" />
+                <span>{t('倒计时')}</span>
+              </button>
+              {FISHTANK_ENABLED && (
+              <button onClick={() => { setShowWidgetSelector(false); setShowFishtankCategorySelect(true) }}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-cyan-50 hover:text-cyan-600 transition-all">
+                <Fish className="w-5 h-5 text-gray-800" />
+                <span>{t('仿真鱼缸')}</span>
+              </button>
+              )}
+              <button onClick={startAddWeread}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">
+                <BookOpen className="w-5 h-5 text-gray-800" />
+                <span>{t('微信读书笔记')}</span>
+              </button>
+              {widgetList.some((w: any) => w.type === 'weathercard') ? (
+                <button disabled
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-400 cursor-not-allowed">
+                  <CloudSun className="w-5 h-5 text-slate-400" />
+                  <span>{t('天气')}</span>
+                  <span className="ml-auto text-xs text-gray-300">{t('已添加')}</span>
+                </button>
+              ) : (
+                <button onClick={() => { setShowWidgetSelector(false); setShowWeatherCardCategorySelect(true) }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-sky-50 hover:text-sky-600 transition-all">
+                  <CloudSun className="w-5 h-5 text-gray-800" />
+                  <span>{t('天气')}</span>
+                  <span className="ml-auto text-xs text-gray-400">{t('天气预报')}</span>
+                </button>
+              )}
+              {(widgetList.some((w: any) => w.type === 'search') || !searchWidgetRemoved) ? (
+                <button disabled
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-400 cursor-not-allowed">
+                  <Search className="w-5 h-5 text-slate-400" />
+                  <span>{t('搜索框')}</span>
+                  <span className="ml-auto text-xs text-gray-300">{t('已添加')}</span>
+                </button>
+              ) : (
+                <button onClick={() => { setShowWidgetSelector(false); void appendWidget({ id: `search-${Date.now()}`, type: 'search', name: '搜索框' }) }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">
+                  <Search className="w-5 h-5 text-gray-800" />
+                  <span>{t('搜索框')}</span>
+                </button>
+              )}
+              {widgetList.some((w: any) => w.type === 'todo') ? (
+                <button disabled
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-400 cursor-not-allowed">
+                  <CheckSquare className="w-5 h-5 text-slate-400" />
+                  <span>{t('待办事项')}</span>
+                  <span className="ml-auto text-xs text-gray-300">{t('已添加')}</span>
+                </button>
+              ) : (
+                <button onClick={() => { setShowWidgetSelector(false); setShowTodoCategorySelect(true) }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">
+                  <CheckSquare className="w-5 h-5 text-gray-800" />
+                  <span>{t('待办事项')}</span>
+                </button>
+              )}
+              {widgetList.some((w: any) => w.type === 'clock') ? (
+                <button disabled
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-400 cursor-not-allowed">
+                  <Clock className="w-5 h-5 text-slate-400" />
+                  <span>{t('时间')}</span>
+                  <span className="ml-auto text-xs text-gray-300">{t('已添加')}</span>
+                </button>
+              ) : (
+                <button onClick={() => { setShowWidgetSelector(false); void appendWidget({ id: `clock-${Date.now()}`, type: 'clock', name: '时间' }) }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-slate-100 hover:text-slate-700 transition-all">
+                  <Clock className="w-5 h-5 text-gray-800" />
+                  <span>{t('时间')}</span>
+                </button>
+              )}
+              {WEATHER_FX_ENABLED && (widgetList.some((w: any) => w.type === 'weather') ? (
+                <div className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-emerald-700 bg-emerald-50/60">
+                  <CloudSun className="w-5 h-5 text-emerald-600" />
+                  <span className="flex-1 truncate">{t('天气特效')}{weatherCity?.name && weatherCity.name !== '当前位置' ? ` · ${weatherCity.name}` : ''}</span>
+                  {weatherBusy ? (
+                    <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
+                  ) : (
+                    <>
+                      <button title={t('搜索城市')} onClick={(e) => { e.stopPropagation(); setWeatherCityTarget('fx'); setShowWeatherCitySearch(true); setWeatherQuery(''); setWeatherResults([]) }}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-white transition-all"><Search className="w-4 h-4" /></button>
+                      <button title={t('重新定位')} onClick={(e) => { e.stopPropagation(); void reLocateWeather() }}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-white transition-all"><MapPin className="w-4 h-4" /></button>
+                      <button title={t('移除')} onClick={(e) => { e.stopPropagation(); removeWeatherFx() }}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-white transition-all"><X className="w-4 h-4" /></button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <button onClick={() => { void addWeatherFx() }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 transition-all">
+                  <CloudSun className="w-5 h-5 text-gray-800" />
+                  <span>{t('天气特效')}</span>
+                  <span className="ml-auto text-xs text-gray-400">{t('壁纸天气模拟')}</span>
+                </button>
+              ))}
             </div>
-            <button onClick={() => setShowWidgetSelector(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
+            <button onClick={() => setShowWidgetSelector(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* 天气城市搜索 */}
+      {showWeatherCitySearch && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowWeatherCitySearch(false)} />
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-3">{t('选择天气地区')}</h3>
+            <input autoFocus value={weatherQuery} onChange={(e) => setWeatherQuery(e.target.value)}
+              placeholder={t('输入城市名，如：上海 / Tokyo')}
+              className="w-full h-11 px-4 rounded-2xl bg-gray-50 border border-gray-100 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-emerald-300 transition-all" />
+            <div className="mt-3 max-h-64 overflow-y-auto space-y-1 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+              {weatherSearching && <div className="px-3 py-2.5 text-sm text-gray-400 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {t('搜索中…')}</div>}
+              {!weatherSearching && weatherQuery.trim() && weatherResults.length === 0 && (
+                <div className="px-3 py-2.5 text-sm text-gray-400">{t('未找到匹配的城市')}</div>
+              )}
+              {weatherResults.map((r, i) => (
+                <button key={`${r.name}-${r.lat}-${i}`} onClick={() => pickWeatherCity(r)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm hover:bg-emerald-50 hover:text-emerald-700 transition-all text-left">
+                  <span className="font-medium">{r.name}</span>
+                  <span className="text-xs text-gray-400 truncate ml-3">{r.region}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setShowWeatherCitySearch(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
           </div>
         </div>
       )}
@@ -1898,16 +2762,16 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {showStockSearch && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => { setShowStockSearch(false); setPendingStock(null) }} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
             {!pendingStock ? (
               <>
-                <h3 className="font-bold text-gray-800 mb-4">选择股票</h3>
+                <h3 className="font-bold text-gray-800 mb-4">{t('选择股票')}</h3>
                 <input type="text" value={stockSearchQuery} onChange={e => setStockSearchQuery(e.target.value)}
-                  placeholder="输入股票代码或名称，如 AAPL" autoFocus
+                  placeholder={t('输入股票代码或名称，如 AAPL')} autoFocus
                   className="w-full h-11 px-4 mb-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm" />
-                {stockSearchLoading && <p className="text-xs text-gray-400 text-center py-4">搜索中...</p>}
+                {stockSearchLoading && <p className="text-xs text-gray-400 text-center py-4">{t('搜索中...')}</p>}
                 {!stockSearchLoading && stockSearchResults.length === 0 && stockSearchQuery.trim() && (
-                  <p className="text-xs text-gray-400 text-center py-4">未找到结果</p>
+                  <p className="text-xs text-gray-400 text-center py-4">{t('未找到结果')}</p>
                 )}
                 <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
                   {stockSearchResults.map((r: any) => (
@@ -1920,20 +2784,24 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   ))}
                 </div>
                 <button onClick={() => { setShowStockSearch(false); setStockSearchQuery(''); setStockSearchResults([]) }}
-                  className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
+                  className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
               </>
             ) : (
               <>
-                <h3 className="font-bold text-gray-800 mb-4">选择分类</h3>
-                <p className="text-sm text-gray-500 mb-3">将 <span className="font-semibold text-gray-700">{pendingStock.symbol}</span> 添加到：</p>
+                <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+                <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{pendingStock.symbol}</span> {t('添加到：')}</p>
                 <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+                  <button onClick={() => confirmAddStock(pendingStock, '__frequent__')}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl text-sm font-medium text-orange-500 hover:bg-orange-50 transition-all">
+                    <Star className="w-4 h-4" /> {t('常用工具')}
+                  </button>
                   {categoryList.map((cat: any) => (
                     <button key={cat.id} onClick={() => confirmAddStock(pendingStock, cat.id)}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{cat.name}</button>
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{t(cat.name)}</button>
                   ))}
                 </div>
                 <button onClick={() => setPendingStock(null)}
-                  className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">返回</button>
+                  className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('返回')}</button>
               </>
             )}
           </div>
@@ -1944,20 +2812,171 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {showGoldCategorySelect && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowGoldCategorySelect(false)} />
-          <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">选择分类</h3>
-            <p className="text-sm text-gray-500 mb-3">将黄金价格添加到：</p>
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <p className="text-sm text-gray-500 mb-3">{t('将黄金价格添加到：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+              <button onClick={() => confirmAddGold('__frequent__')}
+                className="w-full flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl text-sm font-medium text-orange-500 hover:bg-orange-50 transition-all">
+                <Star className="w-4 h-4" /> {t('常用工具')}
+              </button>
               {categoryList.map((cat: any) => (
                 <button key={cat.id} onClick={() => confirmAddGold(cat.id)}
-                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-600 transition-all">{cat.name}</button>
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-600 transition-all">{t(cat.name)}</button>
               ))}
             </div>
             <button onClick={() => setShowGoldCategorySelect(false)}
-              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">取消</button>
+              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
           </div>
         </div>
       )}
+
+      {/* Countdown Category Select Modal（直接创建空组件，不强制新建事项） */}
+      {showCountdownCategorySelect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowCountdownCategorySelect(false)} />
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('倒计时')}</span> {t('添加到：')}</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+              <button onClick={() => confirmAddCountdown('__frequent__')}
+                className="w-full flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl text-sm font-medium text-orange-500 hover:bg-orange-50 transition-all">
+                <Star className="w-4 h-4" /> {t('常用工具')}
+              </button>
+              {categoryList.map((cat: any) => (
+                <button key={cat.id} onClick={() => confirmAddCountdown(cat.id)}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{t(cat.name)}</button>
+              ))}
+            </div>
+            <button onClick={() => setShowCountdownCategorySelect(false)}
+              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('返回')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* Todo Category Select Modal（默认 2 卡完整列表） */}
+      {showTodoCategorySelect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowTodoCategorySelect(false)} />
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('待办事项')}</span> {t('添加到：')}</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+              <button onClick={() => confirmAddTodo('__frequent__')}
+                className="w-full flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl text-sm font-medium text-orange-500 hover:bg-orange-50 transition-all">
+                <Star className="w-4 h-4" /> {t('常用工具')}
+              </button>
+              {categoryList.map((cat: any) => (
+                <button key={cat.id} onClick={() => confirmAddTodo(cat.id)}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{t(cat.name)}</button>
+              ))}
+            </div>
+            <button onClick={() => setShowTodoCategorySelect(false)}
+              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* Fish Tank Category Select Modal（预置 3 条鱼创建，后续在卡片内添加） */}
+      {showFishtankCategorySelect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowFishtankCategorySelect(false)} />
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('仿真鱼缸')}</span> {t('添加到：')}</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+              <button onClick={() => confirmAddFishtank('__frequent__')}
+                className="w-full flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl text-sm font-medium text-orange-500 hover:bg-orange-50 transition-all">
+                <Star className="w-4 h-4" /> {t('常用工具')}
+              </button>
+              {categoryList.map((cat: any) => (
+                <button key={cat.id} onClick={() => confirmAddFishtank(cat.id)}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-cyan-50 hover:text-cyan-600 transition-all">{t(cat.name)}</button>
+              ))}
+            </div>
+            <button onClick={() => setShowFishtankCategorySelect(false)}
+              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('返回')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* Weather Card Category Select Modal（默认 3 卡，创建后卡片内选城市） */}
+      {showWeatherCardCategorySelect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowWeatherCardCategorySelect(false)} />
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('天气')}</span> {t('添加到：')}</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+              <button onClick={() => confirmAddWeatherCard('__frequent__')}
+                className="w-full flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl text-sm font-medium text-orange-500 hover:bg-orange-50 transition-all">
+                <Star className="w-4 h-4" /> {t('常用工具')}
+              </button>
+              {categoryList.map((cat: any) => (
+                <button key={cat.id} onClick={() => confirmAddWeatherCard(cat.id)}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-sky-50 hover:text-sky-600 transition-all">{t(cat.name)}</button>
+              ))}
+            </div>
+            <button onClick={() => setShowWeatherCardCategorySelect(false)}
+              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* Widget Move Modal（右键修改组件所在分类） */}
+      {widgetEditTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setWidgetEditTarget(null)} />
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('修改分类')}</h3>
+            <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{widgetEditTarget.name || t('组件')}</span> {t('移动到：')}</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+              <button onClick={() => applyWidgetMove('__frequent__')}
+                className="w-full flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl text-sm font-medium text-orange-500 hover:bg-orange-50 transition-all">
+                <Star className="w-4 h-4" /> {t('常用工具')}
+              </button>
+              {categoryList.map((cat: any) => (
+                <button key={cat.id} onClick={() => applyWidgetMove(cat.id)}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{t(cat.name)}</button>
+              ))}
+            </div>
+            <button onClick={() => setWidgetEditTarget(null)}
+              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* Weread Category Select Modal（新建组件第二步：选分类） */}
+      {pendingWeread && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setPendingWeread(false)} />
+          <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('微信读书笔记')}</span> {t('添加到：')}</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+              <button onClick={() => confirmAddWeread('__frequent__')}
+                className="w-full flex items-center gap-2 px-3 py-2.5 mb-1 rounded-xl text-sm font-medium text-orange-500 hover:bg-orange-50 transition-all">
+                <Star className="w-4 h-4" /> {t('常用工具')}
+              </button>
+              {categoryList.map((cat: any) => (
+                <button key={cat.id} onClick={() => confirmAddWeread(cat.id)}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{t(cat.name)}</button>
+              ))}
+            </div>
+            <button onClick={() => setPendingWeread(false)}
+              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('返回')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* Weread Setup Modal（新建流程第一步：配置 API Key） */}
+      {showWereadSetup && (
+        <WereadSetupModal onClose={() => setShowWereadSetup(false)}
+          onSaved={() => { setShowWereadSetup(false); setPendingWeread(true) }} />
+      )}
+
+      {/* 链接卡片悬停预览弹出层（全局唯一） */}
+      <LinkPreviewHost />
 
     </div>
   )
@@ -1967,24 +2986,66 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 // 否则每次 App 重渲染都会创建新的组件类型，导致 React 整棵卸载重建（页面闪烁）。
 
 function SectionPanel({ children }: { children: React.ReactNode }) {
-  return <div className="bg-white/60 backdrop-blur-md rounded-3xl border border-white/70 shadow-[0_4px_16px_-6px_rgba(0,0,0,0.06)] p-6 sm:p-8">{children}</div>
+  return <div>{children}</div> // 磨砂大背景已下线：内容直接平铺在页面上
+}
+
+// ---------- 分类图标（首页一级菜单）：categories.icon 存 lucide 图标名；无图标的旧数据按 id 稳定随机展示 ----------
+const CATEGORY_ICONS: Record<string, any> = {
+  Sparkles, Folder, Bookmark, Star, Globe, Compass, Search, Layers, Grid3x3, LayoutGrid,
+  Terminal, Code, Database, Cloud, Server, Cpu, Smartphone, HardDrive, Wifi, Rocket,
+  Briefcase, Wrench, Cog, Hammer, Package, Archive, ShoppingBag, ShoppingCart, CreditCard, Wallet,
+  Coins, TrendingUp, PieChart, Calculator, Banknote, PiggyBank, Gamepad2, Music, Film, Tv,
+  Headphones, Mic, Camera, Image: ImageIcon, Palette, Brush, PenTool, BookOpen, GraduationCap, Newspaper,
+  Mail, MessageCircle, Users, User, Heart, Smile, Gift, Key, Fingerprint, Shield,
+  Lock, Lightbulb, Zap, Flame, Leaf, TreePine, Sun, Moon, Plane, Car,
+  Bike, Map: MapIcon, Home, Building2, Anchor, Utensils, Coffee, Pill, Stethoscope, Dumbbell,
+  Trophy, Medal, Target, Microscope, Atom, Brain, Cat, Dog, Fish, Puzzle, Gem,
+}
+// 按 id/name 哈希稳定取模——同一分类每次渲染拿到同一个"随机"图标
+function pickCategoryIconName(seed?: string): string {
+  const names = Object.keys(CATEGORY_ICONS)
+  const s = String(seed || Math.random())
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return names[h % names.length]
+}
+function CategoryIcon({ cat, className }: { cat: any; className?: string }) {
+  const Icon = CATEGORY_ICONS[cat?.icon] || CATEGORY_ICONS[pickCategoryIconName(cat?.id || cat?.name)]
+  return <Icon className={className} />
+}
+// 图标选择器（创建/编辑一级菜单）：8 列网格，点击选中再点取消
+function IconPicker({ value, onChange }: { value: string; onChange: (n: string) => void }) {
+  const t = useT()
+  return (
+    <div className="mt-3">
+      <div className="text-xs text-gray-500 mb-1.5">{t('选择图标')}</div>
+      <div className="grid grid-cols-8 gap-1.5 max-h-28 overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden">
+        {Object.entries(CATEGORY_ICONS).map(([name, Icon]: any) => (
+          <button key={name} type="button" title={name} onClick={() => onChange(name === value ? '' : name)}
+            className={`h-8 rounded-lg flex items-center justify-center transition-colors ${value === name ? 'bg-blue-500 text-white' : 'bg-white/60 text-gray-500 hover:bg-blue-50'}`}>
+            <Icon className="w-4 h-4" />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function SectionHeader({ title, count, unit }: { title: string; count: number; unit: string }) {
   return (
     <div className="flex items-center justify-between mb-6">
-      <h2 className="text-xl font-bold text-gray-800">{title}</h2>
+      <h2 className="text-xl font-bold text-white">{title}</h2>
       <span className="text-sm font-medium text-blue-600 bg-blue-50/50 px-3 py-1 rounded-full border border-blue-100/50 backdrop-blur-sm">{count} {unit}</span>
     </div>
   )
 }
 
-function EmptyState({ icon: Icon, text, subtext }: { icon: any; text: string; subtext: string }) {
+function EmptyState({ icon: Icon, text, subtext, lightText = false }: { icon: any; text: string; subtext: string; lightText?: boolean }) {
   return (
     <div className="text-center py-20 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20">
-      <div className="inline-flex items-center justify-center w-16 h-16 bg-white/40 shadow-sm text-gray-300 mb-4 rounded-full"><Icon className="w-8 h-8" /></div>
-      <h3 className="text-lg font-medium text-gray-800 mb-2">{text}</h3>
-      <p className="text-sm text-gray-500">{subtext}</p>
+      <div className={`inline-flex items-center justify-center w-16 h-16 bg-white/40 shadow-sm mb-4 rounded-full ${lightText ? 'text-white' : 'text-gray-300'}`}><Icon className="w-8 h-8" /></div>
+      <h3 className={`text-lg font-medium mb-2 ${lightText ? 'text-white' : 'text-gray-800'}`}>{text}</h3>
+      <p className={`text-sm ${lightText ? 'text-white' : 'text-gray-500'}`}>{subtext}</p>
     </div>
   )
 }
@@ -2001,20 +3062,21 @@ function ToolGrid({ tools }: { tools: any[] }) {
 }
 
 function ToolCard({ tool }: { tool: any }) {
+  const t = useT()
   const initials = tool.name?.charAt(0)?.toUpperCase() || '?'
   return (
     <motion.a href={tool.url} target="_blank" rel="noopener noreferrer"
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
-      className="group relative overflow-hidden flex flex-col bg-white/20 backdrop-blur-md border border-white/30 p-5 rounded-2xl hover:bg-white/40 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:border-white/50 transition-all duration-300">
-      <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+      className="group relative overflow-hidden flex flex-col bg-slate-900/20 backdrop-blur-md border border-white/30 p-5 rounded-2xl hover:bg-slate-900/35 hover:shadow-[0_8px_24px_rgba(0,0,0,0.12)] hover:border-white/50 transition-all duration-300">
+      <div className="absolute inset-0 bg-gradient-to-br from-white/15 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
       <div className="relative z-20 flex flex-col h-full">
         <div className="flex items-start justify-between mb-4">
-          <div className="w-12 h-12 rounded-2xl bg-white/80 border border-white shadow-sm flex items-center justify-center text-lg font-bold text-transparent bg-clip-text bg-gradient-to-br from-blue-500 to-purple-600 group-hover:scale-105 transition-transform duration-300">
+          <div className="w-12 h-12 rounded-2xl bg-slate-900/30 border border-white/40 shadow-sm flex items-center justify-center text-lg font-bold text-white group-hover:scale-105 transition-transform duration-300">
             {initials}
           </div>
         </div>
-        <h3 className="font-semibold text-gray-800 text-base mb-1.5 truncate group-hover:text-blue-600 transition-colors">{tool.name}</h3>
-        <p className="text-sm text-gray-500 line-clamp-2 leading-relaxed flex-1">{tool.desc}</p>
+        <h3 className="font-semibold text-white text-base mb-1.5 truncate transition-colors">{tool.name}</h3>
+        <p className="text-sm text-white line-clamp-2 leading-relaxed flex-1">{tool.desc ? t(tool.desc) : null}</p>
       </div>
     </motion.a>
   )
@@ -2054,17 +3116,20 @@ function DraggableList({ items, onReorder, children }: {
 /** Shared drag state so cards can be dragged across category grids */
 let gridDragState: { item: any; sourceKey: string } | null = null
 
-const isWidgetItem = (item: any) => item?.type === 'stock' || item?.type === 'gold'
+const isWidgetItem = (item: any) => item?.type === 'stock' || item?.type === 'gold' || item?.type === 'countdown' || item?.type === 'weread' || item?.type === 'fishtank' || item?.type === 'todo' || item?.type === 'weathercard'
 
-function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropExternal }: {
+function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropExternal, spanOf, clsOf }: {
   items: any[]; onReorder: (list: any[]) => void; children: (item: any, idx: number) => React.ReactNode; disabled?: boolean
   gridKey?: string; onDropExternal?: (item: any, dropIndex: number) => void
+  spanOf?: (item: any) => number // 组件纵向跨几行（1-3）
+  clsOf?: (item: any) => string // 附加网格类（如极简模式下组件跨 3 列保持宽度）
 }) {
   const dragIdx = useRef<number | null>(null)
   return (
     <>
       {items.map((item: any, idx: number) => (
-        <div key={item.id} draggable={!disabled} className="select-none"
+        <div key={item.id} draggable={!disabled} className={`h-full min-h-0 select-none ${clsOf?.(item) || ''}`}
+           style={spanOf && spanOf(item) > 1 ? { gridRow: `span ${spanOf(item)}` } : undefined}
            onDragStart={(e) => { if (disabled) return; dragIdx.current = idx; gridDragState = { item, sourceKey: gridKey || '' }; e.dataTransfer.setData('text/plain', String(idx)); e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('opacity-50') }}
            onDragEnd={(e) => { e.currentTarget.classList.remove('opacity-50'); gridDragState = null; dragIdx.current = null }}
            onDragOver={(e) => { if (disabled) return; e.preventDefault(); e.currentTarget.classList.add('scale-[1.02]') }}
@@ -2088,6 +3153,7 @@ function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropEx
              dragIdx.current = null
              onReorder(list)
            }}>
+           {/* 跨行组件：wrapper 已 span N 行（行高固定 98px），卡片 h-full 填满 */}
            {children(item, idx)}
          </div>
        ))}
@@ -2095,7 +3161,93 @@ function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropEx
    )
  }
 
- function HomeToolCard({ tool, onContextMenu, viewed, onView, onPasswordRequired }: { tool: any; onContextMenu?: (e: React.MouseEvent) => void; viewed: boolean; onView: () => void; onPasswordRequired?: (tool: any) => void }) {
+ // NEW 角标两段式动画（IntersectionObserver 每阶段只触发一次）：
+ // 首次进入视口 → 斜向高光扫过，角标保留（localStorage newBadgeShined 记录已扫过）
+ // 刷新后再次进入视口 → 沙化成粒子被风吹散，结束时 onSeen（服务端计数）+ onDone（本地记已读，角标永久消失）
+ function NewBadge({ id, onSeen, onDone }: { id: string; onSeen: () => void; onDone: () => void }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const [phase, setPhase] = useState<'idle' | 'shine' | 'burst' | 'done'>('idle')
+  const fired = useRef(false)
+  const [wasShined] = useState(() => {
+    try { return (JSON.parse(localStorage.getItem('newBadgeShined') || '[]') as string[]).includes(id) } catch { return false }
+  })
+  const parts = useMemo(() => Array.from({ length: 44 }, () => ({
+    x: Math.random() * 38, y: Math.random() * 20,
+    dx: 26 + Math.random() * 84, dy: -34 + Math.random() * 52,
+    s: 1.5 + Math.random() * 2.2, rot: (Math.random() * 540) | 0,
+    dur: 520 + Math.random() * 680, delay: Math.random() * 280,
+    c: ['#ef4444', '#dc2626', '#f87171', '#fb7185', '#fca5a5', '#fde68a'][Math.floor(Math.random() * 6)],
+  })), [])
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver((es) => {
+      if (fired.current || !es.some(e => e.isIntersecting)) return
+      fired.current = true
+      io.disconnect()
+      if (wasShined) {
+        // 二次进入视口（刷新后）：直接沙化飞走并标记已读
+        onSeen()
+        setPhase('burst')
+        setTimeout(() => { setPhase('done'); onDone() }, 1500)
+      } else {
+        // 首次进入视口：只扫高光，角标保留到下次刷新才飞走
+        try {
+          const arr = JSON.parse(localStorage.getItem('newBadgeShined') || '[]') as string[]
+          if (!arr.includes(id)) { arr.push(id); localStorage.setItem('newBadgeShined', JSON.stringify(arr)) }
+        } catch { /* ignore */ }
+        setPhase('shine')
+        setTimeout(() => setPhase('idle'), 520)
+      }
+    }, { threshold: 0.6 })
+    io.observe(el)
+    return () => io.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // 沙化粒子：Web Animations API 逐粒随机飞散（风向右偏上 + 旋转 + 缩小淡出）
+  useEffect(() => {
+    if (phase !== 'burst' || !hostRef.current) return
+    hostRef.current.querySelectorAll('span').forEach((el, i) => {
+      const p = parts[i]
+      if (!p) return
+      el.animate([
+        { transform: 'translate(0,0) rotate(0deg) scale(1)', opacity: 1 },
+        { transform: `translate(${p.dx}px, ${p.dy}px) rotate(${p.rot}deg) scale(0.6)`, opacity: 0 },
+      ], { duration: p.dur, delay: p.delay, easing: 'cubic-bezier(0.2,0.6,0.3,1)', fill: 'forwards' })
+    })
+  }, [phase])
+  if (phase === 'done') return null
+  return (
+    <div ref={ref} className="absolute -top-1.5 -right-1.5 z-10 pointer-events-none">
+      <style>{`
+        @keyframes lp-badge-shine { 0% { transform: translateX(-120%) skewX(-20deg) } 100% { transform: translateX(320%) skewX(-20deg) } }
+        @keyframes lp-badge-fade { 0% { opacity: 1 } 100% { opacity: 0 } }
+      `}</style>
+      <div ref={hostRef} className="relative">
+        {phase !== 'burst' ? (
+          <div className="relative px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white bg-red-500 shadow-md overflow-hidden">
+            NEW
+            {phase === 'shine' && (
+              <span className="absolute top-0 bottom-0 left-0 w-1/2"
+                style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent)', animation: 'lp-badge-shine 0.48s ease-in-out both' }} />
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white bg-red-500 shadow-md" style={{ animation: 'lp-badge-fade 0.25s ease-out both' }}>NEW</div>
+            {parts.map((p, i) => (
+              <span key={i} className="absolute rounded-[1px]" style={{ left: p.x, top: p.y, width: p.s, height: p.s, background: p.c }} />
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+ }
+
+ function HomeToolCard({ tool, onContextMenu, viewed, onView, onPasswordRequired, minimal }: { tool: any; onContextMenu?: (e: React.MouseEvent) => void; viewed: boolean; onView: () => void; onPasswordRequired?: (tool: any) => void; minimal?: boolean }) {
+  const t = useT()
   const handleClick = (e: React.MouseEvent) => {
     // If tool has password, intercept click
     if (tool.password) {
@@ -2117,37 +3269,70 @@ function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropEx
   const showNew = !viewed && tool.id.startsWith('follow-') && tool.viewed === 0
 
   return (
-    <div className="relative group" onContextMenu={onContextMenu}>
+    <div className="relative group h-full" onContextMenu={onContextMenu}>
       {showNew && (
-        <div className="absolute -top-1.5 -right-1.5 z-10 px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white bg-red-500 shadow-md">
-          NEW
-        </div>
+        <NewBadge id={tool.id} onSeen={() => navigator.sendBeacon(`/api/tools/${tool.id}/view`, '')} onDone={onView} />
       )}
-      <a href={tool.url} target="_blank" rel="noopener noreferrer" draggable={false} onClick={handleClick}
-        className="block p-3 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md transition-all ring-1 ring-black/[0.03]">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden"
-            style={tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6', color: tool.text_color || '#FFFFFF' }}>
-            {tool.icon && isImageIcon(tool.icon) ? (
-              <img src={tool.icon} className="w-full h-full object-contain p-1.5" />
-            ) : (
-              <div className={`${iconFontSize((tool.icon || tool.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>
-                {iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}
-              </div>
-            )}
+      <a href={tool.url} target="_blank" rel="noopener noreferrer" draggable={false}
+        onMouseEnter={(e) => scheduleLinkPreview(
+          { url: tool.url, name: tool.name, desc: tool.desc || undefined, icon: tool.icon && isImageIcon(tool.icon) ? tool.icon : undefined },
+          e.currentTarget)
+        }
+        onMouseLeave={cancelLinkPreview}
+        onMouseDown={cancelLinkPreview}
+        onClick={(e) => { cancelLinkPreview(); handleClick(e) }}
+        onAuxClick={(e) => { if (e.button === 1) { cancelLinkPreview(); handleClick(e) } }}
+        className={minimal
+          ? "relative flex h-full w-full items-center justify-center rounded-2xl transition-all hover:shadow-md hover:opacity-90 overflow-hidden"
+          : "block h-full p-3 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md transition-all ring-1 ring-black/[0.03]"}
+        style={minimal ? (tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6' }) : undefined}>
+        {minimal ? (
+          tool.icon && isImageIcon(tool.icon) ? (
+            <img src={tool.icon} className="w-full h-full object-contain p-3" />
+          ) : (
+            <span className={`${iconFontSize(tool.icon || tool.name)} leading-[1.1] text-center flex flex-col items-center font-bold`}
+              style={{ color: tool.text_color || '#FFFFFF' }}>
+              {iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}
+            </span>
+          )
+        ) : (
+          <div className="flex items-center gap-3 h-full">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden"
+              style={tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6', color: tool.text_color || '#FFFFFF' }}>
+              {tool.icon && isImageIcon(tool.icon) ? (
+                <img src={tool.icon} className="w-full h-full object-contain p-1.5" />
+              ) : (
+                <div className={`${iconFontSize((tool.icon || tool.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>
+                  {iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="font-semibold text-gray-800 text-sm truncate flex items-center gap-1" title={tool.name}>
+                <span className="truncate">{tool.name}</span>
+                {tool.link_status === 'dead' && (
+                  <span className="flex-shrink-0 inline-flex" title={tool.last_http_status ? t('链接已失效（HTTP {status}）', { status: tool.last_http_status }) : t('链接已失效')}>
+                    <Link2Off className="w-3.5 h-3.5 text-red-500" />
+                  </span>
+                )}
+              </h4>
+              {tool.desc && <p className="text-xs text-gray-400 truncate mt-0.5">{t(tool.desc)}</p>}
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-gray-800 text-sm truncate">{tool.name}</h4>
-            {tool.desc && <p className="text-xs text-gray-400 truncate mt-0.5">{tool.desc}</p>}
-          </div>
-        </div>
+        )}
+        {minimal && tool.link_status === 'dead' && (
+          <span className="absolute top-1.5 right-1.5 bg-white rounded-full p-0.5 shadow" title={tool.last_http_status ? t('链接已失效（HTTP {status}）', { status: tool.last_http_status }) : t('链接已失效')}>
+            <Link2Off className="w-3 h-3 text-red-500" />
+          </span>
+        )}
       </a>
     </div>
   )
 }
 
 function RepoGrid({ repos }: { repos: any[] }) {
-  if (!repos?.length) return <EmptyState icon={Box} text="暂无仓库" subtext="" />
+  const t = useT()
+  if (!repos?.length) return <EmptyState icon={Box} text={t('暂无仓库')} subtext="" />
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {repos.map((repo: any) => (
@@ -2158,6 +3343,7 @@ function RepoGrid({ repos }: { repos: any[] }) {
 }
 
 function RepoCard({ repo }: { repo: any }) {
+  const t = useT()
   const handleClick = (e: React.MouseEvent) => {
     if (repo.has_updates) {
       fetch(`/api/follows/repo/${repo.id}/view`, { method: 'POST', credentials: 'include' }).catch(() => {})
@@ -2175,17 +3361,17 @@ function RepoCard({ repo }: { repo: any }) {
         </div>
         <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-800 text-sm truncate">{repo.name}</h3>
+              <h3 className="font-semibold text-white text-sm truncate">{repo.name}</h3>
             </div>
-          <p className="text-xs text-gray-400">{repo.link_count || 0} 个链接 · {repo.visibility === 'public' ? '共享' : repo.visibility === 'password' ? '密码访问' : '私密'}</p>
+          <p className="text-xs text-white/70">{t('{n} 个链接', { n: repo.link_count || 0 })} · {repo.visibility === 'public' ? t('共享') : repo.visibility === 'password' ? t('密码访问') : t('私密')}</p>
         </div>
       </div>
-      {repo.description && <p className="text-sm text-gray-500 line-clamp-2 mb-3">{repo.description}</p>}
+      {repo.description && <p className="text-sm text-white/80 line-clamp-2 mb-3">{repo.description}</p>}
       <div className="flex items-center gap-4 mt-auto pt-3 border-t border-white/20">
-        <span className="flex items-center gap-1 text-xs font-semibold text-gray-400">
+        <span className="flex items-center gap-1 text-xs font-semibold text-white/70">
           <Heart className="w-3.5 h-3.5" /> {repo.follower_count || 0}
         </span>
-        <span className="flex items-center gap-1 text-xs font-semibold text-gray-400">
+        <span className="flex items-center gap-1 text-xs font-semibold text-white/70">
           <Star className="w-3.5 h-3.5" /> {repo.bookmark_count || 0}
         </span>
       </div>
@@ -2194,7 +3380,8 @@ function RepoCard({ repo }: { repo: any }) {
 }
 
 function DiscoverRepoGrid({ repos, user, follows, bookmarks }: { repos: any[]; user: any; follows: any; bookmarks: any }) {
-  if (!repos?.length) return <EmptyState icon={Box} text="暂无仓库" subtext="" />
+  const t = useT()
+  if (!repos?.length) return <EmptyState icon={Box} text={t('暂无仓库')} subtext="" lightText />
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {repos.map((repo: any) => (
@@ -2205,6 +3392,7 @@ function DiscoverRepoGrid({ repos, user, follows, bookmarks }: { repos: any[]; u
 }
 
 function DiscoverRepoCard({ repo, user, follows, bookmarks }: { repo: any; user: any; follows: any; bookmarks: any }) {
+  const t = useT()
   const [isFollowing, setIsFollowing] = useState(repo.is_following || false)
   const [isBookmarked, setIsBookmarked] = useState(repo.is_bookmarked || false)
   const [followerCount, setFollowerCount] = useState(repo.follower_count || 0)
@@ -2248,20 +3436,20 @@ function DiscoverRepoCard({ repo, user, follows, bookmarks }: { repo: any; user:
 
   return (
     <div onClick={handleClick} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && handleClick()}
-      className="group text-left flex flex-col bg-white/20 backdrop-blur-md border border-gray-200/40 rounded-2xl p-4 hover:bg-white/40 hover:border-gray-300/60 transition-all duration-200 ring-1 ring-black/[0.06] cursor-pointer">
+      className="group text-left flex flex-col bg-slate-900/20 backdrop-blur-md border border-white/30 rounded-2xl p-4 hover:bg-slate-900/35 hover:border-white/50 transition-all duration-200 ring-1 ring-black/[0.06] cursor-pointer">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm flex-shrink-0 overflow-hidden"
           style={repo.icon_key ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: repo.bg_color || '#3B82F6', color: repo.text_color || '#FFFFFF' }}>
           {repo.icon_key ? <img src={repo.icon_key} className="w-full h-full object-contain p-1" /> : (repo.icon || repo.name?.charAt(0)?.toUpperCase() || '?')}
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-gray-800 text-sm truncate leading-tight">{repo.name}</h3>
-          <p className="text-xs text-gray-400 truncate">{repo.link_count || 0} 个链接</p>
+          <h3 className="font-semibold text-white text-sm truncate leading-tight">{repo.name}</h3>
+          <p className="text-xs text-white truncate">{t('{n} 个链接', { n: repo.link_count || 0 })}</p>
         </div>
       </div>
-      {repo.description && <p className="text-xs text-gray-400 line-clamp-2 mb-2.5">{repo.description}</p>}
-      <div className="flex items-center justify-between mt-auto pt-2.5 border-t border-gray-200/30">
-        <div className="flex items-center gap-3 text-xs text-gray-400">
+      {repo.description && <p className="text-xs text-white line-clamp-2 mb-2.5">{repo.description}</p>}
+      <div className="flex items-center justify-between mt-auto pt-2.5 border-t border-white/20">
+        <div className="flex items-center gap-3 text-xs text-white">
           <span className="flex items-center gap-1"><Heart className="w-3.5 h-3.5" /> {followerCount}</span>
           <span className="flex items-center gap-1"><Star className="w-3.5 h-3.5" /> {bookmarkCount}</span>
         </div>
@@ -2270,22 +3458,22 @@ function DiscoverRepoCard({ repo, user, follows, bookmarks }: { repo: any; user:
             <button onClick={handleFollow}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 isFollowing
-                  ? 'bg-red-50 text-red-500 hover:bg-red-100'
-                  : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                  ? 'bg-red-500/30 text-white hover:bg-red-500/45'
+                  : 'bg-blue-500/30 text-white hover:bg-blue-500/45'
               }`}>
               <Heart className={`w-3 h-3 ${isFollowing ? 'fill-red-400' : ''}`} />
-              {isFollowing ? '已关注' : '关注'}
+              {isFollowing ? t('已关注') : t('关注')}
             </button>
           )}
           {user && (
             <button onClick={handleBookmark}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 isBookmarked
-                  ? 'bg-amber-50 text-amber-500 hover:bg-amber-100'
-                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                  ? 'bg-amber-500/30 text-white hover:bg-amber-500/45'
+                  : 'bg-white/15 text-white hover:bg-white/25'
               }`}>
               <Star className={`w-3 h-3 ${isBookmarked ? 'fill-amber-400' : ''}`} />
-              {isBookmarked ? '已收藏' : '收藏'}
+              {isBookmarked ? t('已收藏') : t('收藏')}
             </button>
           )}
         </div>
@@ -2295,19 +3483,21 @@ function DiscoverRepoCard({ repo, user, follows, bookmarks }: { repo: any; user:
 }
  
 
-function StockWidgetCard({ widget, quote, onRemove }: { widget: any; quote: any; onRemove: () => void }) {
+function StockWidgetCard({ widget, quote, onRemove, onHeightChange, onContextMenu }: { widget: any; quote: any; onRemove: () => void; onHeightChange?: (h: number) => void; onContextMenu?: (e: React.MouseEvent) => void }) {
   const isUp = quote && quote.regularMarketChange >= 0
   const price = quote?.regularMarketPrice
   const isLoaded = !!quote
+  const height = widget.height || 1
 
   return (
-    <div className="relative group">
+    <div className="relative group h-full min-h-0">
       <button onClick={onRemove}
         className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full bg-red-400 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500">
         <X className="w-3 h-3" />
       </button>
-      <div className="block p-3 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md transition-all ring-1 ring-black/[0.03] cursor-default">
-        <div className="flex items-center gap-3">
+      <div data-widget-card onContextMenu={onContextMenu}
+        className={`h-full p-3 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md transition-all ring-1 ring-black/[0.03] cursor-default select-none ${height > 1 ? 'flex items-center' : ''}`}>
+        <div className={`flex items-center gap-3 ${height > 1 ? 'w-full' : ''}`}>
           <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-purple-100">
               <TrendingUp className="w-5 h-5 text-purple-600" />
           </div>
@@ -2319,32 +3509,37 @@ function StockWidgetCard({ widget, quote, onRemove }: { widget: any; quote: any;
           </div>
         </div>
       </div>
+      {onHeightChange && <WidgetResizeHandle height={height} onChange={onHeightChange} />}
     </div>
   )
 }
 
-function GoldPriceCard({ widget, quote, onRemove }: { widget: any; quote: any; onRemove: () => void }) {
+function GoldPriceCard({ widget, quote, onRemove, onHeightChange, onContextMenu }: { widget: any; quote: any; onRemove: () => void; onHeightChange?: (h: number) => void; onContextMenu?: (e: React.MouseEvent) => void }) {
+  const t = useT()
   const isLoaded = !!quote
+  const height = widget.height || 1
 
   return (
-    <div className="relative group">
+    <div className="relative group h-full min-h-0">
       <button onClick={onRemove}
         className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full bg-red-400 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500">
         <X className="w-3 h-3" />
       </button>
-      <div className="block p-3 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md transition-all ring-1 ring-black/[0.03] cursor-default">
-        <div className="flex items-center gap-3">
+      <div data-widget-card onContextMenu={onContextMenu}
+        className={`h-full p-3 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md transition-all ring-1 ring-black/[0.03] cursor-default select-none ${height > 1 ? 'flex items-center' : ''}`}>
+        <div className={`flex items-center gap-3 ${height > 1 ? 'w-full' : ''}`}>
           <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-100">
               <Gem className="w-5 h-5 text-amber-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-gray-800 text-sm truncate">{widget.name || '黄金价格'}</h4>
+            <h4 className="font-semibold text-gray-800 text-sm truncate">{widget.name || t('黄金价格')}</h4>
             {isLoaded && (
-              <p className="text-xs text-gray-400 truncate mt-0.5">¥{quote?.cnyPerGram?.toFixed(2)}/克</p>
+              <p className="text-xs text-gray-400 truncate mt-0.5">¥{quote?.cnyPerGram?.toFixed(2)}{t('/克')}</p>
             )}
           </div>
         </div>
       </div>
+      {onHeightChange && <WidgetResizeHandle height={height} onChange={onHeightChange} />}
     </div>
   )
 }

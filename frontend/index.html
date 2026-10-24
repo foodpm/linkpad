@@ -6,6 +6,8 @@
     <title>LinkPad - 收藏好链接，分享好品味</title>
     <meta name="description" content="LinkPad 是一个极简导航与链接仓库分享平台：把常用网站整理成专属导航面板，创建公开链接仓库与他人分享好链接。" />
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- 时钟字体提前到关键路径：与 CSS/JS 并行加载，不等 CSS 解析后才发起 -->
+    <link rel="preload" href="/fonts/DSEG7Classic-Bold.woff2" as="font" type="font/woff2" crossorigin />
     <style>
       /* 首屏骨架屏：JS 加载完成前显示，React 挂载后自动替换 */
       @keyframes lp-shimmer {

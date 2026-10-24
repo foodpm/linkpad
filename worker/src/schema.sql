@@ -120,11 +120,22 @@ CREATE TABLE IF NOT EXISTS repo_follows (
   user_id TEXT NOT NULL,
   repo_id TEXT NOT NULL,
   target_category_id TEXT DEFAULT '',
+  skip_link_ids TEXT NOT NULL DEFAULT '[]',
+  exclude_duplicates INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   last_viewed_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (repo_id) REFERENCES repositories(id),
   UNIQUE(user_id, repo_id)
+);
+
+-- Password reset codes
+CREATE TABLE IF NOT EXISTS password_reset_codes (
+  email TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
 );
 
 -- Notifications

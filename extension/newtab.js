@@ -12,8 +12,8 @@
 
   iframe.addEventListener('load', showIframe)
 
-  // Fallback: show iframe after 3s even if not fully loaded
+  // Fallback: show iframe after 1s even if not fully loaded
   setTimeout(function() {
     if (!iframeReady) showIframe()
-  }, 3000)
+  }, 1000)
 })()

@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 execute linkpad-db --file=./src/schema.sql"
+    "db:migrate": "wrangler d1 execute linkpad-db --file=./src/schema.sql",
+    "db:migrations:apply": "wrangler d1 migrations apply linkpad-db --remote"
   },
   "dependencies": {
+    "@cloudflare/puppeteer": "^1.0.4",
     "hono": "^4.7.0"
   },
   "devDependencies": {

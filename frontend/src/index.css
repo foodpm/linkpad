@@ -1,5 +1,74 @@
 @import "tailwindcss";
 
+/* ---------- 界面字体（面板样式切换，自托管 Google 变量字体 latin 子集，按需加载） ---------- */
+@font-face {
+  font-family: 'Open Sans';
+  src: url('/fonts/open-sans-var.woff2') format('woff2');
+  font-weight: 300 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/geist-var.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains-mono-var.woff2') format('woff2');
+  font-weight: 100 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('/fonts/bricolage-var.woff2') format('woff2');
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Unbounded';
+  src: url('/fonts/unbounded-var.woff2') format('woff2');
+  font-weight: 200 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Bitcount';
+  src: url('/fonts/bitcount-var.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+/* 覆盖 Tailwind 默认 sans 栈：--app-font 由 App 按 localStorage 设置（未设置时回退默认） */
+@theme {
+  --font-sans: var(--app-font, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+}
+
+/* ---------- 子分类标题竖杠：纯白 ---------- */
+.lp-subcat-bar {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* ---------- DSEG7 七段数码管字体（真实电子时钟样式，自托管） ---------- */
+@font-face {
+  font-family: 'DSEG7 Classic';
+  src: url('/fonts/DSEG7Classic-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DSEG7 Classic';
+  src: url('/fonts/DSEG7Classic-BoldItalic.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+.font-dseg {
+  font-family: 'DSEG7 Classic', monospace;
+  font-weight: 700;
+}
+
+
 /* ---------- 骨架屏 shimmer 动画 ---------- */
 @keyframes skeleton-shimmer {
   0% { background-position: -400px 0; }
@@ -35,4 +104,85 @@
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* ---------- 弹窗/菜单入场动画（全局，零侵入） ---------- */
+@keyframes modal-backdrop-in {
+  from { opacity: 0 }
+  to { opacity: 1 }
+}
+@keyframes modal-pop-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.95) }
+  to { opacity: 1; transform: none }
+}
+@keyframes ctx-menu-in {
+  from { opacity: 0; transform: scale(0.88) translateY(-6px) }
+  to { opacity: 1; transform: none }
+}
+
+/* 所有弹窗遮罩层（fixed inset-0 + z-50/60/90）：淡入 */
+.fixed.inset-0.z-50,
+.fixed.inset-0.z-\[60\],
+.fixed.inset-0.z-\[90\] {
+  animation: modal-backdrop-in 0.18s ease-out both;
+}
+
+/* 弹窗内容（遮罩层的直接子元素）：从下方弹起 + 轻微回弹 */
+.fixed.inset-0.z-50 > *,
+.fixed.inset-0.z-\[60\] > *,
+.fixed.inset-0.z-\[90\] > * {
+  animation: modal-pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* 右键菜单/弹出菜单（fixed z-50 但非 inset-0 全屏遮罩）：缩放滑入 */
+.fixed.z-50:not(.inset-0) {
+  animation: ctx-menu-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---------- 退出专注模式：时间/搜索框上移 + 卡片自底部上推 ---------- */
+@keyframes lp-rise-top {
+  from { opacity: 0.3; transform: translateY(48px) }
+  to { opacity: 1; transform: none }
+}
+@keyframes lp-rise-cards {
+  from { opacity: 0; transform: translateY(96px) }
+  to { opacity: 1; transform: none }
+}
+.lp-rise-top { animation: lp-rise-top 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.lp-rise-cards { animation: lp-rise-cards 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both; }
+
+/* ---------- 卡片点击反馈 ---------- */
+a[class*="rounded"]:active:not(.pointer-events-none) {
+  transform: scale(0.97);
+  transition: transform 0.08s ease-out;
+}
+
+/* ---------- CRT 壁纸效果（面板样式开关，仅叠加在壁纸层上；静态质感，无动效） ---------- */
+/* 静态层：扫描线 + 四角暗角（显像管曲面感） */
+.lp-crt {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.16) 0px,
+      rgba(0, 0, 0, 0.16) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    radial-gradient(ellipse 120% 120% at 50% 50%, transparent 58%, rgba(0, 0, 0, 0.34) 100%);
+}
+/* RGB 荫罩（三色栅格，模拟显像管荧光粉点距） */
+.lp-crt::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    to right,
+    rgba(255, 0, 0, 0.035) 0px,
+    rgba(0, 255, 0, 0.035) 1px,
+    rgba(0, 0, 255, 0.035) 2px,
+    transparent 3px
+  );
 }

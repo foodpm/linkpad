@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import { users, follows } from '../api'
+import { useT } from '../i18n'
 import { UserPageSkeleton } from '../components/Skeleton'
 import { Home, Heart, ExternalLink, Lock, Globe } from 'lucide-react'
 
 export default function UserPage() {
+  const t = useT()
   const { id } = useParams<{ id: string }>()
   const { user: currentUser } = useAuth()
   const navigate = useNavigate()
@@ -41,13 +43,13 @@ export default function UserPage() {
 
   if (loading) return <UserPageSkeleton />
 
-  if (!profile) return <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 flex items-center justify-center text-gray-500">用户不存在</div>
+  if (!profile) return <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 flex items-center justify-center text-gray-500">{t('用户不存在')}</div>
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50">
       <div className="max-w-4xl mx-auto px-4 py-8">
         <button onClick={() => navigate('/')} className="flex items-center gap-2 text-gray-400 hover:text-blue-500 mb-6 transition-colors text-sm">
-          <Home className="w-4 h-4" /> 首页
+          <Home className="w-4 h-4" /> {t('首页')}
         </button>
 
         {/* Profile Card */}
@@ -62,22 +64,22 @@ export default function UserPage() {
               <div className="flex gap-6 mt-3">
                 <div className="text-center">
                   <div className="font-bold text-gray-800">{profile.follower_count}</div>
-                  <div className="text-xs text-gray-500">粉丝</div>
+                  <div className="text-xs text-gray-500">{t('粉丝')}</div>
                 </div>
                 <div className="text-center">
                   <div className="font-bold text-gray-800">{profile.following_count}</div>
-                  <div className="text-xs text-gray-500">关注</div>
+                  <div className="text-xs text-gray-500">{t('关注')}</div>
                 </div>
                 <div className="text-center">
                   <div className="font-bold text-gray-800">{profile.repo_count}</div>
-                  <div className="text-xs text-gray-500">仓库</div>
+                  <div className="text-xs text-gray-500">{t('仓库')}</div>
                 </div>
               </div>
             </div>
             {currentUser && currentUser.id !== id && (
               <button onClick={toggleFollow}
                 className={`px-6 py-3 rounded-2xl font-medium text-sm transition-all flex-shrink-0 ${isFollowing ? 'bg-white/60 border border-white/80 text-gray-600 hover:bg-white/80' : 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm'}`}>
-                {isFollowing ? '取消关注' : '关注'}
+                {isFollowing ? t('取消关注') : t('关注')}
               </button>
             )}
           </div>
@@ -86,10 +88,10 @@ export default function UserPage() {
         {/* Repos List */}
         <div className="bg-white/30 backdrop-blur-xl rounded-3xl border border-white/60 p-6">
           <h2 className="text-lg font-bold text-gray-800 mb-4">
-            创建的仓库 ({repos.length})
+            {t('创建的仓库 ({n})', { n: repos.length })}
           </h2>
           {repos.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-8">暂无仓库</p>
+            <p className="text-gray-400 text-sm text-center py-8">{t('暂无仓库')}</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {repos.map((repo: any) => (
@@ -103,11 +105,11 @@ export default function UserPage() {
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-gray-800 text-sm truncate">{repo.name}</h3>
                       <div className="flex items-center gap-2 text-xs text-gray-400">
-                        <span>{repo.link_count || 0} 个链接</span>
+                        <span>{t('{n} 个链接', { n: repo.link_count || 0 })}</span>
                         <span>·</span>
                         <span className="flex items-center gap-1">
                           {repo.visibility === 'public' ? <Globe className="w-3 h-3" /> : repo.visibility === 'password' ? <Lock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                          {repo.visibility === 'public' ? '公开' : repo.visibility === 'password' ? '密码' : '私密'}
+                          {repo.visibility === 'public' ? t('公开') : repo.visibility === 'password' ? t('密码') : t('私密')}
                         </span>
                       </div>
                     </div>

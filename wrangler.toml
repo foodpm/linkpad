@@ -1,6 +1,8 @@
 name = "linkpad"
 main = "worker/src/index.ts"
 compatibility_date = "2025-07-01"
+# @cloudflare/puppeteer（链接预览截图）依赖 node:buffer 等 Node 内置模块
+compatibility_flags = ["nodejs_compat"]
 
 workers_dev = false
 routes = [
@@ -11,17 +13,39 @@ routes = [
 # run_worker_first：这些路径必须由 Worker 处理（其余路径由 assets 层直接服务）
 # - /api/*：API 路由（数组模式下数组外路径不进 Worker，漏掉会导致所有接口失效！）
 # - GSC 验证文件：绕过 assets 的 .html 规范化重定向
-# - sitemap.xml：动态生成（全部公开仓库）
+# - BingSiteAuth.xml：Bing 站长工具验证文件（绕过 assets 层）
+# - sitemap.xml：动态生成（全部公开仓库，含 hreflang alternates）
+# - /、/discover、/user/*：服务端按语种注入 SEO/GEO TDK（hreflang + og:locale + html lang）
 # - /repo/*：服务端注入 SEO/GEO meta（OG + JSON-LD + noindex 控制）
-assets = { directory = "./frontend/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/api/*", "/googlefe93a97deb0e3b06.html", "/sitemap.xml", "/repo/*"] }
+assets = { directory = "./frontend/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/api/*", "/", "/discover", "/user/*", "/repo/*", "/googlefe93a97deb0e3b06.html", "/BingSiteAuth.xml", "/sitemap.xml"] }
 
 # D1 Database
 [[d1_databases]]
 binding = "DB"
 database_name = "linkpad-db"
 database_id = "b1cefcbc-d733-453f-be56-d4816a17e1e6"
+migrations_dir = "migrations"
 
 # R2 Bucket
 [[r2_buckets]]
 binding = "R2"
 bucket_name = "linkpad-assets"
+
+# Cloudflare 邮件发送（Email Routing，linkpad.site 域名已开启）
+[[send_email]]
+name = "SEND_EMAIL"
+
+# Browser Rendering（Workers Paid）：链接卡片悬停截图预览 /api/preview
+[browser]
+binding = "BROWSER"
+
+# 速率限制：/api/preview 防滥用（每 IP 每 60s 最多 20 次截图触发）
+[[unsafe.bindings]]
+name = "PREVIEW_RL"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+# 定时任务：链接失效兜底扫描（UTC 21:00 = 北京 05:00 低峰）
+[triggers]
+crons = ["0 21 * * *"]

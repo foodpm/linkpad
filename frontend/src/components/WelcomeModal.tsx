@@ -1,5 +1,6 @@
 import { motion } from 'motion/react'
-import { X, LayoutGrid, FolderHeart, CandlestickChart, CheckSquare, Search, Cloud, Download } from 'lucide-react'
+import { X, LayoutGrid, FolderHeart, CandlestickChart, CheckSquare, Search, Cloud, Download, Chrome } from 'lucide-react'
+import { useT } from '../i18n'
 
 interface Props {
   onClose: () => void
@@ -16,6 +17,7 @@ const features = [
 ]
 
 export default function WelcomeModal({ onClose, onRegister }: Props) {
+  const t = useT()
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" />
@@ -23,7 +25,7 @@ export default function WelcomeModal({ onClose, onRegister }: Props) {
         initial={{ opacity: 0, y: 24, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.35, ease: 'easeOut' }}
-        className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-2xl p-6 sm:p-8 [&::-webkit-scrollbar]:hidden"
+        className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white rounded-3xl border border-white/60 shadow-2xl p-6 sm:p-8 [&::-webkit-scrollbar]:hidden"
       >
         <button onClick={onClose} className="absolute top-4 right-4 w-9 h-9 rounded-2xl bg-white/60 border border-white/80 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-white transition-all">
           <X className="w-4 h-4" />
@@ -32,9 +34,9 @@ export default function WelcomeModal({ onClose, onRegister }: Props) {
         {/* 网站整体介绍 */}
         <div className="flex flex-col items-center text-center mb-6">
           <img src="/logo.png" alt="LinkPad" className="w-16 h-16 rounded-2xl object-contain mb-3" />
-          <h2 className="text-2xl font-bold text-gray-800">欢迎使用 LinkPad</h2>
+          <h2 className="text-2xl font-bold text-gray-800">{t('欢迎使用 LinkPad')}</h2>
           <p className="text-sm text-gray-500 mt-2 leading-relaxed max-w-md">
-            一个集「极简导航首页 + 社区链接仓库」于一体的效率工具，让浏览器新标签页成为你的效率中心。
+            {t('一个集「极简导航首页 + 社区链接仓库」于一体的效率工具，让浏览器新标签页成为你的效率中心。')}
           </p>
         </div>
 
@@ -46,8 +48,8 @@ export default function WelcomeModal({ onClose, onRegister }: Props) {
                 <f.icon className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <h4 className="font-semibold text-gray-800 text-sm">{f.title}</h4>
-                <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.desc}</p>
+                <h4 className="font-semibold text-gray-800 text-sm">{t(f.title)}</h4>
+                <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{t(f.desc)}</p>
               </div>
             </div>
           ))}
@@ -60,14 +62,23 @@ export default function WelcomeModal({ onClose, onRegister }: Props) {
               <Download className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <h4 className="font-semibold text-gray-800 text-sm">把 LinkPad 装进你的新标签页</h4>
+              <h4 className="font-semibold text-gray-800 text-sm">{t('把 LinkPad 装进你的新标签页')}</h4>
               <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                安装 LinkPad 浏览器扩展（Chrome / Edge），每次打开新标签页都会自动展示你的 LinkPad 首页——常用链接、股票行情、待办事项一目了然，无需再手动打开网站。支持离线缓存，加载更快，数据与网站云端同步。
+                {t('安装 LinkPad 浏览器扩展（Chrome / Edge），每次打开新标签页都会自动展示你的 LinkPad 首页——常用链接、股票行情、待办事项一目了然，无需再手动打开网站。支持离线缓存，加载更快，数据与网站云端同步。')}
               </p>
-              <a href="/linkpad-extension.zip" download
-                className="inline-flex items-center gap-1.5 mt-3 px-4 h-10 rounded-2xl bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors">
-                <Download className="w-4 h-4" /> 下载插件
-              </a>
+              <div className="flex gap-2 mt-3">
+                <a href="https://chromewebstore.google.com/detail/linkpad-%E6%96%B0%E6%A0%87%E7%AD%BE%E9%A1%B5/cjpglkdffginlpandblgodncddjidkmd" target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 h-10 rounded-2xl bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors">
+                  <Chrome className="w-4 h-4" /> {t('Chrome 商店在线安装')}
+                </a>
+                <a href="/linkpad-extension.zip" download
+                  className="inline-flex items-center justify-center gap-1.5 px-4 h-10 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 text-gray-600 text-sm transition-colors">
+                  <Download className="w-4 h-4" /> {t('下载离线安装包')}
+                </a>
+              </div>
+              <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+                {t('推荐通过谷歌插件商店在线安装；若无法访问谷歌插件商店，可下载离线安装包手动加载。')}
+              </p>
             </div>
           </div>
         </div>
@@ -75,9 +86,9 @@ export default function WelcomeModal({ onClose, onRegister }: Props) {
         {/* 立即注册 */}
         <button onClick={onRegister}
           className="w-full h-12 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold text-base transition-all shadow-lg shadow-blue-500/20">
-          立即注册
+          {t('立即注册')}
         </button>
-        <p className="text-xs text-gray-400 text-center mt-3">注册后可创建链接仓库、关注社区仓库，配置云端同步</p>
+        <p className="text-xs text-gray-400 text-center mt-3">{t('注册后可创建链接仓库、关注社区仓库，配置云端同步')}</p>
       </motion.div>
     </div>
   )

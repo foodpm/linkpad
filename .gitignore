@@ -4,6 +4,7 @@ node_modules/
 # 构建产物
 frontend/dist/
 .wrangler/
+*.tsbuildinfo
 
 # 环境与本地配置
 .dev.vars

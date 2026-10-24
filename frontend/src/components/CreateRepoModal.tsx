@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { X, Tag, Globe, Lock, KeyRound, Palette, Camera, Loader } from 'lucide-react'
 import { repos } from '../api'
+import { useT } from '../i18n'
 
 const palette = [
   { bg: '#3B82F6', text: '#FFFFFF' }, { bg: '#EF4444', text: '#FFFFFF' },
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function CreateRepoModal({ onClose, onCreated }: Props) {
+  const t = useT()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [categories, setCategories] = useState<string[]>([])
@@ -53,7 +55,7 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!name.trim()) return setError('请输入仓库名称')
+    if (!name.trim()) return setError(t('请输入仓库名称'))
 
     setLoading(true)
     try {
@@ -78,9 +80,9 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
   }
 
   const visibilityOptions = [
-    { value: 'private', label: '私密', icon: Lock, desc: '仅自己可见' },
-    { value: 'public', label: '共享', icon: Globe, desc: '发布到发现页' },
-    { value: 'password', label: '密码访问', icon: KeyRound, desc: '输入密码才能查看' },
+    { value: 'private', label: t('私密'), icon: Lock, desc: t('仅自己可见') },
+    { value: 'public', label: t('共享'), icon: Globe, desc: t('发布到发现页') },
+    { value: 'password', label: t('密码访问'), icon: KeyRound, desc: t('输入密码才能查看') },
   ] as const
 
   const color = palette[selectedColor]
@@ -88,10 +90,10 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl border border-white/60 shadow-xl p-8 w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
+      <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-8 w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
 
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">创建仓库</h2>
+        <h2 className="text-2xl font-bold text-gray-800 mb-6">{t('创建仓库')}</h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Icon row - separate */}
@@ -109,15 +111,15 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
             <div className="flex items-center gap-2">
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleIconSelect} />
               <button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/60 border border-white/80 text-sm text-gray-600 hover:bg-white/90 transition-all">
-                <Camera className="w-4 h-4" /> 上传图标
+                <Camera className="w-4 h-4" /> {t('上传图标')}
               </button>
               {iconPreview && (
-                <button type="button" onClick={() => { setIconFile(null); setIconPreview(''); if (fileInputRef.current) fileInputRef.current.value = '' }} className="text-xs text-red-400 hover:text-red-600">清除</button>
+                <button type="button" onClick={() => { setIconFile(null); setIconPreview(''); if (fileInputRef.current) fileInputRef.current.value = '' }} className="text-xs text-red-400 hover:text-red-600">{t('清除')}</button>
               )}
             </div>
             <div className="flex items-center gap-2">
               <Palette className="w-3 h-3 text-gray-400" />
-              <span className="text-xs text-gray-400">背景颜色</span>
+              <span className="text-xs text-gray-400">{t('背景颜色')}</span>
               <div className="flex gap-1 flex-wrap">
                 {palette.map((p, i) => (
                   <button key={i} type="button" onClick={() => setSelectedColor(i)}
@@ -129,19 +131,19 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
           </div>
 
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">仓库名称 *</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="输入仓库名称"
+            <label className="text-xs text-gray-500 mb-1 block">{t('仓库名称 *')}</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder={t('输入仓库名称')}
               className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400" />
           </div>
 
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">简介（选填）</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="简要描述仓库"
+            <label className="text-xs text-gray-500 mb-1 block">{t('简介（选填）')}</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder={t('简要描述仓库')}
               className="w-full h-20 px-4 py-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 resize-none" />
           </div>
 
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">分类（输入后回车添加）</label>
+            <label className="text-xs text-gray-500 mb-1 block">{t('分类（输入后回车添加）')}</label>
             <div className="flex flex-wrap gap-2 mb-2">
               {categories.map(c => (
                 <span key={c} className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-xs font-medium border border-blue-100">
@@ -152,11 +154,11 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
             </div>
             <input value={catInput} onChange={e => setCatInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCategory() } }}
-              placeholder="输入分类名称" className="w-full h-11 px-4 bg-white/60 border border-white/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-sm" />
+              placeholder={t('输入分类名称')} className="w-full h-11 px-4 bg-white/60 border border-white/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-sm" />
           </div>
 
           <div>
-            <label className="text-xs text-gray-500 mb-2 block">分享模式</label>
+            <label className="text-xs text-gray-500 mb-2 block">{t('分享模式')}</label>
             <div className="grid grid-cols-3 gap-2">
               {visibilityOptions.map(opt => {
                 const Icon = opt.icon
@@ -175,8 +177,8 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
 
           {visibility === 'password' && (
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">访问密码 *</label>
-              <input type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder="设置访问密码"
+              <label className="text-xs text-gray-500 mb-1 block">{t('访问密码 *')}</label>
+              <input type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder={t('设置访问密码')}
                 className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400" />
             </div>
           )}
@@ -184,9 +186,9 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
           {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 
           <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 h-12 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50 transition-all">取消</button>
+            <button type="button" onClick={onClose} className="flex-1 h-12 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50 transition-all">{t('取消')}</button>
             <button type="submit" disabled={loading} className="flex-1 h-12 rounded-2xl bg-blue-500 text-white hover:bg-blue-600 transition-all disabled:opacity-50">
-              {loading ? '创建中...' : '创建'}
+              {loading ? t('创建中...') : t('创建')}
             </button>
           </div>
         </form>
