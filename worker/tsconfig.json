@@ -5,9 +5,11 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
+    "lib": ["ESNext"],
     "types": ["@cloudflare/workers-types"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
+    "paths": {
+      "@cloudflare/puppeteer": ["./src/puppeteer"]
+    }
   },
   "include": ["src"]
 }

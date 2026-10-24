@@ -44,7 +44,7 @@ app.onError((err, c) => {
 
 // API 语言解析：X-Lang 头（前端携带用户选择）> Accept-Language > zh
 app.use('/api/*', async (c, next) => {
-  c.set('lang', apiLang(c.req.header('accept-language'), c.req.header('x-lang')))
+  c.set('lang', apiLang(c.req.header('accept-language') ?? null, c.req.header('x-lang') ?? null))
   await next()
 })
 
@@ -510,7 +510,7 @@ app.put('/api/users/me', async (c) => {
 app.get('/api/user/widgets', async (c) => {
   const user = await getUser(c)
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
-  const prefs = await c.env.DB.prepare('SELECT widgets, item_order, countdown_events, lang FROM user_preferences WHERE user_id = ?').bind(user.id).first()
+  const prefs = await c.env.DB.prepare('SELECT widgets, item_order, countdown_events, lang FROM user_preferences WHERE user_id = ?').bind(user.id).first<Record<string, string>>()
   return c.json({
     widgets: prefs ? JSON.parse(prefs.widgets) : [],
     itemOrder: prefs ? JSON.parse(prefs.item_order) : {},
@@ -836,7 +836,7 @@ app.get('/api/repos/:id/links', async (c) => {
 // GitHub 链接不做同域名兜底：不同路径代表不同仓库
 app.get('/api/repos/:id/links/duplicates', async (c) => {
   const repoId = c.req.param('id')
-  const key = normalizeUrl(c.req.query('url'))
+  const key = normalizeUrl(c.req.query('url') ?? '')
   if (!key) return c.json({ duplicates: [] })
   const exclude = c.req.query('exclude') || ''
   const keyDomain = urlDomain(key)
@@ -1976,7 +1976,7 @@ app.get('/api/tools', async (c) => {
 // 检测首页是否已存在相同链接：精确匹配（忽略协议/大小写/末尾斜杠）优先，无精确命中时按同域名兜底（忽略路径），返回重复项及其所在分类
 // GitHub 链接不做同域名兜底：不同路径代表不同仓库
 app.get('/api/tools/duplicates', async (c) => {
-  const key = normalizeUrl(c.req.query('url'))
+  const key = normalizeUrl(c.req.query('url') ?? '')
   if (!key) return c.json({ duplicates: [] })
   const keyDomain = urlDomain(key)
   const pick = (list: any[]) => {
@@ -3030,8 +3030,7 @@ async function takeScreenshot(env: Bindings, url: string): Promise<Uint8Array | 
       // 超时也继续截当前已渲染画面
     }
     await new Promise((r) => setTimeout(r, 800)) // 等待首屏渲染稳定
-    const buf = (await page.screenshot({ type: 'jpeg', quality: 60 })) as ArrayBuffer
-    return new Uint8Array(buf)
+    return await page.screenshot({ type: 'jpeg', quality: 60 })
   } catch (e) {
     console.error('preview screenshot failed:', url, e)
     return null
@@ -3107,7 +3106,7 @@ app.get('/api/preview', async (c) => {
 
   const shot = await captureAndStore(c.env, url, key)
   if (!shot) return c.json({ error: T(c, '预览生成失败') }, 404)
-  return c.body(shot, 200, headers)
+  return c.newResponse(shot.buffer as ArrayBuffer, 200, headers)
 })
 
 // ==================== 预览截图批量预热（cron 每 15 分钟 + 管理员手动触发） ====================
@@ -3134,7 +3133,7 @@ async function listPreviewCache(env: Bindings): Promise<Map<string, number>> {
   const map = new Map<string, number>()
   let cursor: string | undefined
   do {
-    const page = await env.R2.list({ prefix: PREVIEW_PREFIX, cursor, include: ['customMetadata'] })
+    const page = await env.R2.list({ prefix: PREVIEW_PREFIX, cursor })
     for (const obj of page.objects) map.set(obj.key, Number(obj.customMetadata?.created || 0))
     cursor = page.truncated ? page.cursor : undefined
   } while (cursor)
@@ -3371,7 +3370,7 @@ app.get('/user/*', (c) => serveIndexSeo(c, (lang) => {
 // 仓库详情页 SSR meta：AI/GEO 爬虫不执行 JS，meta 必须直接写在 HTML 里（TDK 按语种注入）
 app.get('/repo/:id', async (c) => {
   const id = c.req.param('id')
-  const lang = htmlLang(new URL(c.req.url), c.req.header('accept-language'), c.req.header('cookie'))
+  const lang = htmlLang(new URL(c.req.url), c.req.header('accept-language') ?? null, c.req.header('cookie') ?? null)
   const tx = SEO_TEXT[lang]
   try {
     const repo = await c.env.DB.prepare(

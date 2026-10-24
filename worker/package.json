@@ -6,15 +6,16 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:migrate": "wrangler d1 execute linkpad-db --file=./src/schema.sql",
-    "db:migrations:apply": "wrangler d1 migrations apply linkpad-db --remote"
+    "db:migrations:apply": "wrangler d1 migrations apply linkpad-db --remote",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^1.0.4",
-    "hono": "^4.7.0"
+    "hono": "^4.13.13"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250301.0",
-    "wrangler": "^4.0.0",
-    "typescript": "^5.7.0"
+    "@cloudflare/workers-types": "^4.20260624.1",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
   }
 }
