@@ -1848,7 +1848,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               <span className="text-xs text-white">{t('社区发布的公开仓库 · 关注仓库后，您的首页将会同步展示仓库链接')}</span>
             </div>
             <select value={discoverSort} onChange={e => setDiscoverSort(e.target.value)}
-              className="h-9 px-3 bg-slate-900/50 border border-white/30 rounded-xl text-xs text-white [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-blue-400/50">
+              className="h-9 pl-3.5 pr-8 bg-slate-900/50 border border-white/30 rounded-xl text-xs text-white [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-blue-400/50">
               <option value="followers" className="bg-slate-900 text-white">{t('关注最多')}</option>
               <option value="bookmarks" className="bg-slate-900 text-white">{t('收藏最多')}</option>
               <option value="recent" className="bg-slate-900 text-white">{t('最近更新')}</option>
