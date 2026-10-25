@@ -134,13 +134,13 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
           <div>
             <label className="text-xs text-gray-500 mb-1 block">{t('仓库名称 *')}</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder={t('输入仓库名称')}
-              className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400" />
+              className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400" />
           </div>
 
           <div>
             <label className="text-xs text-gray-500 mb-1 block">{t('简介（选填）')}</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder={t('简要描述仓库')}
-              className="w-full h-20 px-4 py-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 resize-none" />
+              className="w-full h-20 px-4 py-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 resize-none" />
           </div>
 
           <div>
@@ -180,7 +180,7 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
             <div>
               <label className="text-xs text-gray-500 mb-1 block">{t('访问密码 *')}</label>
               <input type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder={t('设置访问密码')}
-                className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400" />
+                className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400" />
             </div>
           )}
 

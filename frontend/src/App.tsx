@@ -2219,16 +2219,16 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               <>
                 <ModalTitle icon={Layers} title={t('创建子分类')} />
                 <select value="" onChange={e => setParentCatId(e.target.value)}
-                  className="w-full h-12 px-4 mb-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
+                  className="w-full h-12 px-4 mb-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
                   <option value="" disabled>{t('请选择父菜单')}</option>
                   {categoryList.filter((c: any) => !c.parent_id).map((cat: any) => (
                     <option key={cat.id} value={cat.id}>{t(cat.name)}</option>
                   ))}
                 </select>
                 <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder={t('子分类名称')} autoFocus
-                  className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                  className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                 <input value={newCatPassword} onChange={e => setNewCatPassword(e.target.value)} type="password" placeholder={t('密码（选填）')}
-                  className="w-full h-12 px-4 mt-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                  className="w-full h-12 px-4 mt-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                 <div className="flex gap-2 mt-3">
                   <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
                   <button onClick={createCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('创建')}</button>
@@ -2238,9 +2238,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               <>
                 <ModalTitle icon={FolderPlus} title={t('创建菜单')} />
                 <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder={t('菜单名称')} autoFocus
-                  className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                  className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                 <input value={newCatPassword} onChange={e => setNewCatPassword(e.target.value)} type="password" placeholder={t('密码（选填）')}
-                  className="w-full h-12 px-4 mt-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                  className="w-full h-12 px-4 mt-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                 <IconPicker value={newCatIcon} onChange={setNewCatIcon} />
                 <div className="flex gap-2 mt-3">
                   <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword(''); setNewCatIcon('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
@@ -2268,9 +2268,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   )}
                   <input value={editCatName} onChange={e => setEditCatName(e.target.value)} placeholder={isSubCat ? t('子分类名称') : t('菜单名称')} autoFocus
                     onKeyDown={e => { if (e.key === 'Enter') updateCategory() }}
-                    className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                    className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                   <input value={editCatPassword} onChange={e => setEditCatPassword(e.target.value)} type="password" placeholder={cat?.password ? t('密码（留空不修改）') : t('密码（选填）')}
-                    className="w-full h-12 px-4 mt-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                    className="w-full h-12 px-4 mt-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                   {cat?.password && (
                     <button onClick={clearCategoryPassword} className="mt-2 text-xs text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors">
                       <Lock className="w-3 h-3" /> {t('此分类已加密，点击取消加密')}
@@ -2294,14 +2294,53 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={closeAddTool} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
             <ModalTitle icon={Link2} title={t('添加链接')} />
-            <div className="space-y-3">
+            <div className="space-y-5">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('名称')}</label>
-                <input value={addToolName} onChange={e => setAddToolName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('名称')}</label>
+                <input value={addToolName} onChange={e => setAddToolName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{addToolType === 'pdf' ? t('PDF 文件') : t('地址')}</label>
-                <input value={addToolUrl} disabled={addToolType !== 'url'} onChange={e => {
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('链接类型')}</label>
+                <select
+                  value={addToolType}
+                  onChange={e => {
+                    const next = e.target.value as 'url' | 'pdf'
+                    setAddToolType(next)
+                    if (next === 'url') {
+                      setAddToolPdf(null)
+                      if (addToolPdfRef.current) addToolPdfRef.current.value = ''
+                    } else {
+                      setAddToolUrl('')
+                    }
+                  }}
+                  className="w-full h-12 px-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm"
+                >
+                  <option value="url">{t('网站')}</option>
+                  <option value="pdf">{t('PDF')}</option>
+                </select>
+              </div>
+              {addToolType === 'pdf' ? (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('PDF 文件')}</label>
+                <div className="flex items-center gap-3">
+                  <input ref={addToolPdfRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleAddToolPdfSelect} />
+                  <button type="button" onClick={() => addToolPdfRef.current?.click()} disabled={addToolPdfUploading}
+                    className="inline-flex items-center gap-2 h-12 px-4 rounded-2xl border border-gray-200 bg-white/60 text-sm text-gray-700 transition-all hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60">
+                    {addToolPdfUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} {addToolPdfUploading ? t('上传中...') : (addToolPdf ? t('重新选择 PDF') : t('选择 PDF'))}
+                  </button>
+                  {addToolPdf && (
+                    <>
+                      <span className="min-w-0 flex-1 truncate text-sm text-gray-600" title={addToolPdf.name}>{addToolPdf.name}</span>
+                      <button type="button" onClick={() => { setAddToolPdf(null); setAddToolUrl(''); if (addToolPdfRef.current) addToolPdfRef.current.value = '' }}
+                        className="shrink-0 rounded-xl px-2 py-1.5 text-xs text-red-500 hover:bg-red-50">{t('删除')}</button>
+                    </>
+                  )}
+                </div>
+              </div>
+              ) : (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('地址')}</label>
+                <input value={addToolUrl} onChange={e => {
                   setAddToolUrl(e.target.value)
                   const u = e.target.value
                   scheduleAddToolDesc(u)
@@ -2335,8 +2374,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                       }
                     })
                   }
-                }} placeholder={addToolType === 'pdf' ? (addToolPdf ? t('已选择 PDF') : t('选择 PDF 后自动填充')) : t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 disabled:cursor-not-allowed disabled:opacity-70" />
+                }} placeholder={t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               </div>
+              )}
               {addToolDups.length > 0 && (
                 <div className="rounded-2xl bg-amber-50/80 border border-amber-200/60 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 text-amber-600 font-medium text-xs mb-1.5">
@@ -2364,44 +2404,10 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 onChange={setAddToolDesc}
                 onFetch={() => fetchAddToolDesc(addToolUrl, true)}
               />
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('链接类型（网站 / PDF 二选一）')}</label>
-                <select
-                  value={addToolType}
-                  onChange={e => {
-                    const next = e.target.value as 'url' | 'pdf'
-                    setAddToolType(next)
-                    if (next === 'url') {
-                      setAddToolPdf(null)
-                      if (addToolPdfRef.current) addToolPdfRef.current.value = ''
-                    } else {
-                      setAddToolUrl('')
-                    }
-                  }}
-                  className="w-full h-11 px-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm"
-                >
-                  <option value="url">{t('网站')}</option>
-                  <option value="pdf">{t('PDF')}</option>
-                </select>
-                <div className="flex items-center gap-2 mt-2">
-                  <input ref={addToolPdfRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleAddToolPdfSelect} />
-                  <button type="button" onClick={() => addToolPdfRef.current?.click()} disabled={addToolType !== 'pdf' || addToolPdfUploading}
-                    className="inline-flex items-center gap-1 rounded-xl border border-white/80 bg-white/60 px-3 py-1.5 text-xs text-gray-600 transition-all hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60">
-                    {addToolPdfUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />} {addToolPdfUploading ? t('上传中...') : t('选择 PDF')}
-                  </button>
-                  {addToolType === 'pdf' && addToolPdf && (
-                    <>
-                      <span className="max-w-[180px] truncate text-xs text-gray-500" title={addToolPdf.name}>{addToolPdf.name}</span>
-                      <button type="button" onClick={() => { setAddToolPdf(null); setAddToolUrl(''); if (addToolPdfRef.current) addToolPdfRef.current.value = '' }}
-                        className="text-xs text-red-400 hover:text-red-600 shrink-0">{t('清除')}</button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <input value={addToolPassword} onChange={e => setAddToolPassword(e.target.value)} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              <input value={addToolPassword} onChange={e => setAddToolPassword(e.target.value)} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               {/* Category selector */}
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('分类（可多选）')}</label>
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('分类（可多选）')}</label>
                 <CategoryMultiSelect
                   searchable
                   options={homeCategoryOptions}
@@ -2417,9 +2423,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               </div>
               {/* 图标来源 */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('图标来源')}</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">{t('图标来源')}</label>
                 <select value={addToolIconSrc} onChange={e => switchAddToolIconSrc(e.target.value as 'auto' | 'upload' | 'text')}
-                  className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
+                  className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
                   <option value="auto">{t('自动获取')}</option>
                   <option value="upload">{t('上传图标')}</option>
                   <option value="text">{t('文字图标')}</option>
@@ -2430,7 +2436,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               </div>
               {/* 当前图标 */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('当前图标')}</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">{t('当前图标')}</label>
                 <div className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-md overflow-hidden shrink-0"
                     style={addToolIcon && isImageIcon(addToolIcon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: toolPalette[addToolColor]?.bg || '#3B82F6', color: toolPalette[addToolColor]?.text || '#FFFFFF' }}>
@@ -2457,7 +2463,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   )}
                   {addToolIconSrc === 'text' && (
                     <input value={addToolTextIcon} onChange={e => setAddToolTextIcon(e.target.value)} placeholder={t('图标文字（最多4字）')} maxLength={4}
-                      className="flex-1 h-11 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-sm text-center" />
+                      className="flex-1 h-11 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-sm text-center" />
                   )}
                 </div>
                 {addToolIconSrc === 'text' && (
@@ -2485,7 +2491,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setEditTool(null)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
             <ModalTitle icon={Edit3} title={t('编辑链接')} />
-            <div className="space-y-3">
+            <div className="space-y-5">
               {/* Icon preview + editor */}
               <div className="flex flex-col items-center gap-2 pb-2">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-md overflow-hidden"
@@ -2511,15 +2517,15 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   {editTool.icon && isImageIcon(editTool.icon) && <button type="button" onClick={() => { setEditTool({ ...editTool, icon: '' }); if (editToolFileRef.current) editToolFileRef.current.value = '' }} className="text-xs text-red-400 hover:text-red-600">{t('清除')}</button>}
                 </div>
                 {(!editTool.icon || !isImageIcon(editTool.icon)) && (
-                  <input value={editTool.icon || ''} onChange={e => setEditTool({ ...editTool, icon: e.target.value })} placeholder={t('图标文字（最多4字）')} maxLength={4} className="w-full h-10 px-4 bg-white/60 border border-white/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-xs text-center" />
+                  <input value={editTool.icon || ''} onChange={e => setEditTool({ ...editTool, icon: e.target.value })} placeholder={t('图标文字（最多4字）')} maxLength={4} className="w-full h-10 px-4 bg-white/60 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-xs text-center" />
                 )}
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('名称')}</label>
-                <input value={editTool.name} onChange={e => setEditTool({ ...editTool, name: e.target.value })} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('名称')}</label>
+                <input value={editTool.name} onChange={e => setEditTool({ ...editTool, name: e.target.value })} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('地址')}</label>
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('地址')}</label>
                 <input value={editTool.url} onChange={e => {
                   setEditTool({ ...editTool, url: e.target.value })
                   const u = e.target.value
@@ -2529,19 +2535,19 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                       setEditTool((prev: any) => ({ ...prev, icon: r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url) }))
                     }
                   })
-                }} placeholder={t('地址')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                }} placeholder={t('地址')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('描述')}</label>
-                <input value={editTool.desc || ''} onChange={e => setEditTool({ ...editTool, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('描述')}</label>
+                <input value={editTool.desc || ''} onChange={e => setEditTool({ ...editTool, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('密码（选填）')}</label>
-                <input value={editTool.password || ''} onChange={e => setEditTool({ ...editTool, password: e.target.value })} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('密码（选填）')}</label>
+                <input value={editTool.password || ''} onChange={e => setEditTool({ ...editTool, password: e.target.value })} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               </div>
               {/* Category selector */}
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('分类（可多选）')}</label>
+                <label className="mb-2 block text-sm font-medium text-gray-700">{t('分类（可多选）')}</label>
                 <CategoryMultiSelect
                   searchable
                   options={homeCategoryOptions}
@@ -2682,7 +2688,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 }
               }}}
               placeholder={t('请输入密码')} autoFocus
-              className="w-full h-12 px-4 mb-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              className="w-full h-12 px-4 mb-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
             {linkPwdError && <p className="text-xs text-red-500 mb-3">{linkPwdError}</p>}
             <div className="flex gap-2">
               <button onClick={() => { setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
@@ -2897,7 +2903,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 <ModalTitle icon={TrendingUp} title={t('选择股票')} />
                 <input type="text" value={stockSearchQuery} onChange={e => setStockSearchQuery(e.target.value)}
                   placeholder={t('输入股票代码或名称，如 AAPL')} autoFocus
-                  className="w-full h-11 px-4 mb-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm" />
+                  className="w-full h-11 px-4 mb-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm" />
                 {stockSearchLoading && <p className="text-xs text-gray-400 text-center py-4">{t('搜索中...')}</p>}
                 {!stockSearchLoading && stockSearchResults.length === 0 && stockSearchQuery.trim() && (
                   <p className="text-xs text-gray-400 text-center py-4">{t('未找到结果')}</p>

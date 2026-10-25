@@ -250,6 +250,7 @@ export const en: Record<string, string> = {
   '链接类型（网站 / PDF 二选一）': 'Link type (website / PDF)',
   '已选择 PDF': 'PDF selected',
   '选择 PDF 后自动填充': 'Auto-filled after choosing a PDF',
+  '重新选择 PDF': 'Choose another PDF',
   'PDF 文件': 'PDF file',
   '网站': 'Website',
   'PDF': 'PDF',
