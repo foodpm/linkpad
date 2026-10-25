@@ -294,8 +294,8 @@ export default function AdminPage() {
                   </div>
                 </div>
                 {/* Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="overflow-x-auto overscroll-x-contain">
+                  <table className="admin-table w-full min-w-[760px] text-sm">
                     <thead>
                       <tr className="bg-[#f8f9fb] text-[#666] text-xs uppercase tracking-wider">
                         <th className="text-left py-3 px-5 font-semibold">{t('名称')}</th>
@@ -352,8 +352,8 @@ export default function AdminPage() {
                   </select>
                 </div>
                 {/* Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="overflow-x-auto overscroll-x-contain">
+                  <table className="admin-table w-full min-w-[900px] text-sm">
                     <thead>
                       <tr className="bg-[#f8f9fb] text-[#666] text-xs uppercase tracking-wider">
                         <th className="text-left py-3 px-5 font-semibold">{t('名称')}</th>
@@ -439,8 +439,8 @@ export default function AdminPage() {
                 <button onClick={() => { setUserFilter({ nickname: '', email: '', status: '' }); setTimeout(loadUsers, 50) }} className="h-9 px-4 border border-[#e0e0e0] text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-all">{t('重置')}</button>
               </div>
               {/* Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto overscroll-x-contain">
+                <table className="admin-table w-full min-w-[1400px] text-sm">
                   <thead>
                     <tr className="bg-[#f8f9fb] text-[#666] text-xs uppercase tracking-wider">
                       <th className="text-left py-3 px-5 font-semibold">{t('用户')}</th>
@@ -545,8 +545,8 @@ export default function AdminPage() {
                 <button onClick={() => { setRepoFilter({ search: '', visibility: '', ownerEmail: '' }); setTimeout(loadRepos, 50) }} className="h-9 px-4 border border-[#e0e0e0] text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-all">{t('重置')}</button>
               </div>
               {/* Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto overscroll-x-contain">
+                <table className="admin-table w-full min-w-[1120px] text-sm">
                   <thead>
                     <tr className="bg-[#f8f9fb] text-[#666] text-xs uppercase tracking-wider">
                       <th className="text-left py-3 px-5 font-semibold">{t('仓库名称')}</th>

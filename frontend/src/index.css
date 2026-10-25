@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Admin data tables keep one line per cell and scroll horizontally on narrow screens. */
+.admin-table th,
+.admin-table td {
+  white-space: nowrap;
+}
+
 /* ---------- 界面字体（面板样式切换，自托管 Google 变量字体 latin 子集，按需加载） ---------- */
 @font-face {
   font-family: 'Open Sans';
