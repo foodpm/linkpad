@@ -143,16 +143,23 @@ function normalizeCategoryIds(input: any): string[] {
 async function getRepoCategoryIds(db: D1Database, repoId: string, linkIds: string[]): Promise<Record<string, string[]>> {
   const map: Record<string, string[]> = {}
   if (linkIds.length === 0) return map
-  const placeholders = linkIds.map(() => '?').join(',')
-  const { results } = await db.prepare(
-    `SELECT a.link_id, a.category_id, a.sort_order
-     FROM link_category_assignments a
-     JOIN repo_links l ON l.id = a.link_id
-     WHERE l.repo_id = ? AND a.link_id IN (${placeholders})
-     ORDER BY a.sort_order ASC, a.rowid ASC`
-  ).bind(repoId, ...linkIds).all()
-  for (const row of (results || []) as any[]) {
-    (map[row.link_id] ||= []).push(row.category_id)
+  // D1 rejects large statements once the bound-variable count crosses its
+  // internal limit (reproducible at ~100 links), so query assignments in
+  // chunks rather than joining by every link ID in one statement.
+  const chunkSize = 100
+  for (let i = 0; i < linkIds.length; i += chunkSize) {
+    const chunk = linkIds.slice(i, i + chunkSize)
+    const placeholders = chunk.map(() => '?').join(',')
+    const { results } = await db.prepare(
+      `SELECT a.link_id, a.category_id, a.sort_order
+       FROM link_category_assignments a
+       JOIN repo_links l ON l.id = a.link_id
+       WHERE l.repo_id = ? AND a.link_id IN (${placeholders})
+       ORDER BY a.sort_order ASC, a.rowid ASC`
+    ).bind(repoId, ...chunk).all()
+    for (const row of (results || []) as any[]) {
+      (map[row.link_id] ||= []).push(row.category_id)
+    }
   }
   return map
 }
@@ -1210,7 +1217,7 @@ app.delete('/api/links/:id', async (c) => {
   const pdfMatch = /\/api\/pdfs\/([0-9a-f-]{36})/.exec(link.url || '')
   if (pdfMatch) {
     await c.env.DB.prepare('DELETE FROM link_uploads WHERE id = ? AND user_id = ?').bind(pdfMatch[1], link.user_id).run()
-    await c.env.R2.delete(`pdfs/${pdfMatch[1]}`)
+    await c.env.R2.delete(`pdfs/${link.user_id}/${pdfMatch[1]}.pdf`)
   }
   await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM repo_links WHERE id = ?').bind(id).run()
