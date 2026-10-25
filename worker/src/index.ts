@@ -2515,7 +2515,7 @@ app.delete('/api/tools/:id', async (c) => {
   const toolPdfMatch = toolRow ? /\/api\/pdfs\/([0-9a-f-]{36})/.exec(toolRow.url || '') : null
   if (toolPdfMatch) {
     await c.env.DB.prepare('DELETE FROM link_uploads WHERE id = ? AND user_id = ?').bind(toolPdfMatch[1], user.id).run()
-    await c.env.R2.delete(`pdfs/${toolPdfMatch[1]}`)
+    await c.env.R2.delete(`pdfs/${user.id}/${toolPdfMatch[1]}.pdf`)
   }
   await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(id).run()
   return c.json({ success: true })
