@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="zh-CN" data-composition-variables='[
+  {"id":"tagline","type":"string","label":"结尾标语","default":"收藏好链接，分享好品味"},
+  {"id":"url","type":"string","label":"网址","default":"linkpad.site"},
+  {"id":"blue","type":"color","label":"LinkPad 蓝","default":"#2E62FF"},
+  {"id":"deep","type":"color","label":"深空色","default":"#05060B"},
+  {"id":"ink","type":"color","label":"主文字","default":"#F4F7FF"},
+  {"id":"endHold","type":"number","label":"结尾停留（秒）","default":1.5,"min":1,"max":10,"step":0.1,"group":"节奏"}
+]'>
+<head>
+<meta charset="utf-8">
+<title>LinkPad · 收藏好链接，分享好品味</title>
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/om.js"></script>
+<style id="om-fonts">
+@font-face { font-family: "Noto Sans SC"; src: url("assets/fonts/NotoSansSC-500.woff") format("woff"); font-weight: 500; font-style: normal; }
+@font-face { font-family: "Noto Sans SC"; src: url("assets/fonts/NotoSansSC-900.woff") format("woff"); font-weight: 900; font-style: normal; }
+</style>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+  #film { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--deep); color: var(--ink); font-family: "Noto Sans SC", sans-serif; font-weight: 500; }
+  * { box-sizing: border-box; }
+  .scene { position: absolute; inset: 0; overflow: hidden; opacity: 0; }
+  .stage-grid { position: absolute; inset: -180px; background-image: linear-gradient(rgba(255,255,255,.030) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.030) 1px, transparent 1px); background-size: 56px 56px; mask-image: radial-gradient(circle at 50% 46%, black 22%, transparent 70%); }
+  .stage-glow { position: absolute; left: 50%; top: 8%; width: 1800px; height: 1200px; transform: translate(-50%, -50%); background: radial-gradient(closest-side, rgba(46,98,255,.30), transparent 70%); filter: blur(38px); opacity: .58; }
+  .stage-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 45%, transparent 34%, rgba(0,0,0,.58) 100%); pointer-events: none; }
+  .hairline { position: absolute; height: 1px; left: 120px; right: 120px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.17), transparent); }
+  .caption { position: absolute; left: 128px; bottom: 58px; display: flex; align-items: center; gap: 15px; font-size: 32px; font-weight: 700; letter-spacing: -.02em; z-index: 40; }
+  .caption .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 7px rgba(46,98,255,.13); flex-shrink: 0; }
+  .caption .mask { overflow: hidden; padding-bottom: .22em; line-height: 1.3; }
+  .caption span.in { display: block; }
+  .panel { border-radius: 28px; background: linear-gradient(145deg, rgba(19,24,39,.94), rgba(11,14,24,.88)); border: 1px solid rgba(255,255,255,.09); box-shadow: 0 40px 100px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.09); overflow: hidden; }
+  .mono { font-family: "Noto Sans SC", sans-serif; font-size: 12px; letter-spacing: .21em; text-transform: uppercase; color: #97A3BC; }
+  .brand-mark { width: 120px; height: 120px; border-radius: 30px; background: #FFFFFF; border: 1px solid rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 24px 70px rgba(46,98,255,.24), inset 0 1px 0 #fff; }
+  .brand-mark img { width: 84%; height: 84%; object-fit: contain; }
+  .chip { display: inline-flex; align-items: center; gap: 9px; height: 40px; padding: 0 12px; border-radius: 12px; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.07); font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .chip img { width: 21px; height: 21px; border-radius: 6px; object-fit: cover; }
+  .chip small { font-size: 10px; color: #98A2B8; font-weight: 500; }
+
+  /* hook */
+  #s-hook .brand-mark { position: absolute; left: 900px; top: 480px; z-index: 18; }
+  .noise { position: absolute; width: 38px; height: 38px; border-radius: 11px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); }
+  #hook-copy { position: absolute; left: 136px; top: 258px; width: 940px; z-index: 8; }
+  #hook-copy .kicker { color: #9DB0FF; font-family: "Noto Sans SC"; font-size: 15px; font-weight: 700; letter-spacing: .28em; }
+  #hook-copy h1 { margin: 24px 0 0; font-size: 94px; line-height: 1.07; letter-spacing: -.065em; font-weight: 900; color: var(--ink); }
+  #hook-copy .mask { display: block; overflow: hidden; padding-bottom: .13em; }
+  #hook-copy span.in { display: block; }
+  #hook-copy .accent { background: linear-gradient(100deg, #4E7CFF, #A46CFF); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #hook-copy p { margin: 32px 0 0; max-width: 710px; font-size: 24px; line-height: 1.65; color: #9AA5BD; }
+  #hook-copy p b { color: #E9EFFC; font-weight: 700; }
+  .light-sweep { position: absolute; inset: 0; z-index: 60; opacity: 0; background: linear-gradient(82deg, transparent 18%, rgba(255,255,255,.14) 43%, rgba(46,98,255,.16) 52%, transparent 77%); transform: translateX(-72%); }
+
+  /* home */
+  #home-panel { position: absolute; left: 170px; top: 104px; width: 1580px; height: 796px; }
+  #home-panel .side { width: 254px; height: 100%; padding: 24px 16px; border-right: 1px solid rgba(255,255,255,.055); background: rgba(255,255,255,.018); }
+  #home-panel .brand { display: flex; align-items: center; gap: 13px; height: 54px; padding: 0 8px 22px; }
+  #home-panel .brand img { width: 34px; height: 34px; border-radius: 10px; }
+  #home-panel .brand b { font-size: 24px; letter-spacing: -.06em; }
+  #home-panel .side-item { display: flex; align-items: center; gap: 11px; height: 42px; border-radius: 12px; padding: 0 12px; font-size: 14px; color: #94A1B8; }
+  #home-panel .side-item.active { color: #FFF; background: rgba(46,98,255,.13); border: 1px solid rgba(46,98,255,.22); }
+  #home-panel .side-item i { width: 15px; height: 15px; border: 1.5px solid currentColor; border-radius: 5px; opacity: .6; }
+  #home-panel .main { position: relative; height: 100%; padding: 28px 36px; }
+  #home-panel h3 { margin: 0; font-size: 20px; font-weight: 900; color: #E7ECF8; }
+  #home-panel .sub { font-size: 12px; color: #8E99AF; margin-top: 5px; }
+  .link-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+  .link-card { height: 84px; border-radius: 16px; background: rgba(255,255,255,.042); border: 1px solid rgba(255,255,255,.065); padding: 12px; display: flex; align-items: center; gap: 11px; }
+  .link-card img { width: 38px; height: 38px; border-radius: 12px; background: #fff; object-fit: cover; flex-shrink: 0; }
+  .link-card b { display: block; font-size: 14px; color: #EAF0FC; }
+  .link-card small { display: block; font-size: 10px; color: #8A94AA; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .link-card.hot { border-color: rgba(46,98,255,.35); background: rgba(46,98,255,.075); }
+
+  /* repo */
+  #repo-panel { position: absolute; left: 132px; top: 156px; width: 1160px; height: 656px; padding: 30px 34px; }
+  #repo-panel h3, #sync-panel h3 { margin: 0; font-size: 29px; font-weight: 900; color: #F0F5FF; letter-spacing: -.035em; }
+  .repo-sub { margin-top: 7px; font-size: 14px; color: #8B96AC; }
+  .vis-row { display: flex; gap: 8px; margin-top: 20px; }
+  .vis { padding: 8px 13px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #97A3BC; border: 1px solid rgba(255,255,255,.08); }
+  .vis.on { color: #fff; background: rgba(46,98,255,.14); border-color: rgba(46,98,255,.30); }
+  .repo-link { display: flex; align-items: center; gap: 14px; height: 70px; border-radius: 17px; background: rgba(255,255,255,.038); border: 1px solid rgba(255,255,255,.055); padding: 0 16px; margin-top: 10px; }
+  .repo-link img { width: 34px; height: 34px; border-radius: 10px; object-fit: cover; background: #fff; }
+  .repo-link b { display: block; font-size: 16px; color: #E7ECF8; }
+  .repo-link small { display: block; font-size: 11px; color: #8A94AA; margin-top: 3px; }
+  .repo-count { margin-left: auto; font-size: 12px; color: #8390A8; }
+  #follow-btn { position: absolute; right: 34px; top: 132px; height: 48px; padding: 0 23px; border-radius: 15px; background: var(--blue); color: #fff; font-size: 17px; font-weight: 900; display: flex; align-items: center; justify-content: center; box-shadow: 0 14px 38px rgba(46,98,255,.26); }
+  #follow-btn span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #follow-btn .followed { opacity: 0; }
+  #sync-panel { position: absolute; right: 130px; top: 210px; width: 512px; padding: 23px 24px; opacity: 0; transform: translateX(38px); }
+  .sync-title { font-size: 12px; letter-spacing: .18em; color: #83E5B2; text-transform: uppercase; font-weight: 700; }
+  .sync-row { display: flex; align-items: center; gap: 12px; height: 64px; margin-top: 10px; border-radius: 15px; background: rgba(255,255,255,.037); border: 1px solid rgba(255,255,255,.055); padding: 0 13px; opacity: 0; transform: translateX(26px); }
+  .sync-row img { width: 32px; height: 32px; border-radius: 10px; object-fit: cover; background: #fff; }
+  .sync-row b { display: block; font-size: 15px; color: #EDF2FD; }
+  .sync-row small { display: block; font-size: 10px; color: #8A94AA; margin-top: 3px; }
+  .sync-arrow { position: absolute; left: 1288px; top: 490px; width: 92px; height: 2px; background: linear-gradient(90deg, rgba(46,98,255,.08), #2E62FF); transform: scaleX(0); transform-origin: 0 50%; opacity: .8; }
+
+  /* quality */
+  #url-bar { position: absolute; left: 235px; top: 197px; width: 1090px; height: 82px; display: flex; align-items: center; gap: 16px; padding: 0 25px; }
+  #url-bar .link-icon { width: 30px; height: 30px; border-radius: 10px; background: rgba(46,98,255,.17); border: 1px solid rgba(46,98,255,.26); }
+  #url-text { position: relative; flex: 1; height: 34px; font-size: 24px; color: #E7ECF8; letter-spacing: -.015em; }
+  #url-caret { position: absolute; left: 0; top: 0; width: 2px; height: 28px; background: var(--blue); opacity: 0; }
+  #dup-toast { position: absolute; left: 235px; top: 320px; width: 620px; padding: 20px 23px; display: flex; align-items: center; gap: 17px; opacity: 0; transform: translateY(19px); }
+  #dup-toast .ic { width: 43px; height: 43px; border-radius: 14px; background: rgba(255,176,70,.13); border: 1px solid rgba(255,176,70,.25); position: relative; flex-shrink: 0; }
+  #dup-toast b { display: block; font-size: 21px; color: #F4F7FF; }
+  #dup-toast small { display: block; margin-top: 4px; font-size: 13px; color: #96A2B9; }
+  #dead-card { position: absolute; right: 206px; top: 221px; width: 668px; padding: 29px; }
+  #dead-card h4 { margin: 0 0 18px; font-size: 27px; color: #FFF; }
+  #dead-card .hint { margin: -12px 0 19px; font-size: 13px; color: #8D98AE; }
+  .dead-row { display: flex; align-items: center; gap: 13px; height: 68px; border-radius: 15px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.05); padding: 0 14px; margin-top: 10px; opacity: 0; transform: translateY(15px); }
+  .dead-row .box { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid #6E7A90; position: relative; flex-shrink: 0; }
+  .dead-row .box:after { content: ''; position: absolute; left: 5px; top: 1px; width: 7px; height: 11px; border-right: 2.4px solid #fff; border-bottom: 2.4px solid #fff; transform: rotate(45deg) scale(0); }
+  .dead-row b { display: block; font-size: 16px; color: #E6EBF7; }
+  .dead-row small { display: block; font-size: 11px; color: #8A94AA; margin-top: 3px; }
+  .dead-row .http { margin-left: auto; font-size: 10px; font-weight: 900; color: #FF6C7A; background: rgba(255,108,122,.12); border: 1px solid rgba(255,108,122,.17); border-radius: 7px; padding: 4px 7px; }
+  #dead-clean { position: absolute; right: 29px; bottom: 29px; height: 50px; padding: 0 24px; border-radius: 15px; background: #FF4B5C; color: #fff; font-size: 16px; font-weight: 900; display: flex; align-items: center; opacity: 0; transform: translateY(12px); }
+
+  /* preview */
+  #preview-card { position: absolute; left: 452px; top: 197px; width: 960px; border-radius: 28px; background: linear-gradient(145deg, rgba(18,23,39,.98), rgba(10,13,23,.96)); border: 1px solid rgba(46,98,255,.24); padding: 22px; box-shadow: 0 50px 120px rgba(0,0,0,.65), 0 0 72px rgba(46,98,255,.12); opacity: 0; transform: translateY(34px) scale(.94); }
+  #preview-card .shot { position: relative; width: 916px; height: 556px; border-radius: 19px; overflow: hidden; background: #EDF2FB; }
+  #preview-card .shot img { width: 100%; height: 100%; object-fit: cover; object-position: top center; opacity: 0; }
+  #preview-card .shine { position: absolute; inset: 0; overflow: hidden; }
+  #preview-card .shine div { position: absolute; top: -25%; bottom: -25%; left: 0; width: 42%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.42), transparent); transform: translateX(-100%) skewX(-18deg); }
+  #preview-card .meta { display: flex; align-items: center; justify-content: space-between; padding: 20px 8px 5px; }
+  #preview-card b { display: block; font-size: 24px; color: #FFF; letter-spacing: -.03em; }
+  #preview-card small { display: block; margin-top: 5px; font-size: 12px; color: #8A94AA; letter-spacing: .07em; }
+  #preview-card .open { height: 42px; padding: 0 17px; border-radius: 12px; background: var(--blue); color: #fff; font-size: 13px; font-weight: 800; display: flex; align-items: center; }
+  #hover-card { position: absolute; left: 710px; top: 578px; width: 452px; padding: 22px; opacity: 0; transform: translate(-50%, -50%) scale(.9); }
+
+  /* extension */
+  #browser { position: absolute; left: 246px; top: 108px; width: 1430px; height: 804px; }
+  #browser .bar { height: 72px; border-bottom: 1px solid rgba(255,255,255,.06); background: rgba(255,255,255,.025); display: flex; align-items: center; padding: 0 22px; gap: 16px; }
+  #browser .addr { flex: 1; height: 42px; border-radius: 13px; background: rgba(255,255,255,.055); border: 1px solid rgba(255,255,255,.07); display: flex; align-items: center; padding: 0 15px; font-size: 15px; color: #9CA8BE; gap: 10px; }
+  #browser .addr i { width: 11px; height: 11px; border-radius: 50%; background: #83E5B2; }
+  #browser .win { position: relative; height: 731px; background: linear-gradient(160deg, #0A0E18, #070A12); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  #browser .win:before { content: ''; position: absolute; inset: -60px; background: radial-gradient(1000px 620px at 22% 15%, rgba(46,98,255,.24), transparent 68%); opacity: .5; }
+  #browser .home { position: relative; width: 964px; height: 514px; border-radius: 23px; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09); padding: 28px; }
+  #browser .home .row { display: flex; gap: 12px; margin-top: 19px; }
+  #browser .home .mini { flex: 1; height: 80px; border-radius: 16px; background: rgba(255,255,255,.042); border: 1px solid rgba(255,255,255,.065); }
+  #browser .home .mini.hot { border-color: rgba(46,98,255,.30); background: rgba(46,98,255,.08); }
+  #search-pill { position: absolute; left: 768px; top: 458px; width: 880px; height: 70px; border-radius: 19px; background: rgba(255,255,255,.055); border: 1px solid rgba(255,255,255,.09); display: flex; align-items: center; padding: 0 24px; gap: 16px; }
+  #search-pill b { font-size: 21px; color: #D9E1F1; font-weight: 700; }
+  #ext-pill { position: absolute; right: 186px; top: 198px; padding: 15px 24px; border-radius: 999px; background: rgba(46,98,255,.12); border: 1px solid rgba(46,98,255,.29); font-size: 19px; font-weight: 900; color: #FFF; opacity: 0; transform: translateY(18px); }
+
+  /* widgets + montage */
+  #search-result { position: absolute; left: 768px; top: 538px; width: 880px; padding: 22px; opacity: 0; transform: translateY(-9px) scale(.97); }
+  #search-result .row { display: flex; align-items: center; gap: 14px; height: 66px; border-radius: 15px; background: rgba(255,255,255,.038); border: 1px solid rgba(46,98,255,.18); padding: 0 16px; }
+  #search-result img { width: 33px; height: 33px; border-radius: 10px; background: #fff; object-fit: cover; }
+  #search-result b { display: block; font-size: 17px; color: #FFF; }
+  #search-result small { display: block; margin-top: 3px; font-size: 11px; color: #8A94AA; }
+  .widget { position: absolute; width: 420px; height: 318px; padding: 26px; opacity: 0; transform: translateY(36px) scale(.94); }
+  .widget h5 { margin: 0 0 22px; font-size: 22px; color: #EDF2FD; display: flex; align-items: center; justify-content: space-between; }
+  .widget small { font-size: 11px; color: #8A94AA; letter-spacing: .15em; text-transform: uppercase; }
+  #w-todo { left: 296px; top: 232px; }
+  #w-stock { right: 296px; top: 232px; }
+  #w-gold { left: 748px; top: 602px; }
+  .todo-row { display: flex; align-items: center; gap: 12px; height: 47px; border-radius: 13px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.05); padding: 0 13px; }
+  .todo-row i { width: 17px; height: 17px; border-radius: 50%; border: 1.5px solid #6E7A90; }
+  .todo-row.done i { border-color: #2E62FF; background: var(--blue); }
+  .todo-row.done span { color: #7C869D; text-decoration: line-through; }
+  .todo-row span { font-size: 14px; color: #DEE5F2; }
+  .stat-big { font-size: 59px; font-weight: 900; letter-spacing: -.05em; color: #FFF; font-variant-numeric: tabular-nums; }
+  .stock-up { color: #45D68F; }
+  .gold-val { color: #FFB75C; }
+  .spark { position: relative; height: 92px; margin-top: 22px; }
+  .spark svg { width: 100%; height: 100%; overflow: visible; }
+  .spark path { fill: none; stroke-width: 4; stroke-linecap: round; }
+  .montage-shot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 42px; opacity: 0; }
+  .montage-card { width: 402px; padding: 31px; }
+  .montage-card .big { font-size: 52px; font-weight: 900; color: #FFF; letter-spacing: -.045em; }
+  .montage-card .lab { margin-top: 13px; font-size: 17px; color: #9AA5BD; }
+  #progress { position: absolute; left: 50%; bottom: 78px; width: 420px; height: 3px; transform: translateX(-50%); display: flex; gap: 8px; opacity: 0; }
+  #progress span { flex: 1; height: 100%; background: rgba(255,255,255,.13); border-radius: 2px; overflow: hidden; }
+  #progress i { display: block; width: 100%; height: 100%; background: var(--blue); transform: scaleX(0); transform-origin: 0 50%; }
+
+  /* end */
+  #s-logo { background: radial-gradient(circle at 50% 46%, rgba(46,98,255,.12), transparent 42%); }
+  #end-mark { position: absolute; left: 960px; top: 366px; width: 142px; height: 142px; margin-left: -71px; }
+  #end-mark .brand-mark { width: 100%; height: 100%; }
+  .end-title { position: absolute; left: 0; right: 0; top: 548px; text-align: center; font-size: 85px; font-weight: 900; letter-spacing: -.06em; color: #FFF; opacity: 0; transform: translateY(24px); }
+  .end-url { position: absolute; left: 50%; top: 686px; transform: translateX(-50%); height: 52px; padding: 0 29px; border-radius: 999px; background: rgba(46,98,255,.13); border: 1px solid rgba(46,98,255,.28); display: flex; align-items: center; font-size: 20px; font-weight: 900; color: #FFF; opacity: 0; transform: translate(-50%, 18px); }
+  .end-note { position: absolute; left: 0; right: 0; top: 794px; text-align: center; font-size: 13px; letter-spacing: .16em; color: #8794AA; opacity: 0; transform: translateY(12px); }
+  .flood { position: absolute; inset: 0; z-index: 65; opacity: 0; transform: scale(.3); pointer-events: none; }
+  .flood.blue { background: radial-gradient(circle at 50% 46%, rgba(46,98,255,.86), rgba(5,6,11,.9) 72%); }
+  .flood.deep { background: radial-gradient(circle at 50% 46%, rgba(255,255,255,.68), rgba(5,6,11,.82) 74%); }
+  #cursor { position: absolute; left: 0; top: 0; width: 35px; height: 35px; z-index: 72; opacity: 0; will-change: transform; }
+  #cursor:before { content: ''; position: absolute; left: 7px; top: 3px; width: 20px; height: 30px; clip-path: polygon(0 0, 100% 55%, 45% 58%, 58% 100%, 40% 100%, 28% 61%, 0 78%); background: #FFF; filter: drop-shadow(0 4px 10px rgba(0,0,0,.55)); }
+  #click-ring { position: absolute; left: 0; top: 0; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; border: 2.4px solid rgba(46,98,255,.75); opacity: 0; will-change: transform; }
+  #hover-glow { position: absolute; left: 760px; top: 620px; width: 400px; height: 240px; border-radius: 24px; background: radial-gradient(circle, rgba(46,98,255,.24), transparent 70%); opacity: 0; filter: blur(18px); }
+</style>
+<script type="application/json" id="om-cues">{"source":"tts:say:Tingting","precision":"tts","offset":0,"duration":44.256,"words":[
+{"word":"LinkPad","start":0,"end":0.521},
+{"word":"产品","start":0.521,"end":1.042},
+{"word":"介绍","start":1.042,"end":1.562},
+{"word":"脚本","start":1.562,"end":2.083},
+{"word":"收藏","start":2.333,"end":2.881},
+{"word":"夹","start":2.881,"end":3.155},
+{"word":"太","start":3.155,"end":3.429},
+{"word":"乱","start":3.429,"end":3.703},
+{"word":"链","start":4.007,"end":4.249},
+{"word":"接","start":4.249,"end":4.492},
+{"word":"太多","start":4.492,"end":4.978},
+{"word":"找","start":5.289,"end":5.525},
+{"word":"东西","start":5.525,"end":5.998},
+{"word":"总","start":5.998,"end":6.234},
+{"word":"在","start":6.234,"end":6.471},
+{"word":"翻","start":6.471,"end":6.707},
+{"word":"页","start":6.707,"end":6.944},
+{"word":"LinkPad","start":7.193,"end":7.683},
+{"word":"把","start":7.683,"end":7.929},
+{"word":"常用","start":7.929,"end":8.419},
+{"word":"网站","start":8.419,"end":8.91},
+{"word":"整理","start":8.91,"end":9.4},
+{"word":"成","start":9.4,"end":9.645},
+{"word":"一","start":9.645,"end":9.89},
+{"word":"屏","start":9.89,"end":10.136},
+{"word":"导航","start":10.136,"end":10.626},
+{"word":"越","start":10.932,"end":11.179},
+{"word":"用","start":11.179,"end":11.425},
+{"word":"越","start":11.425,"end":11.672},
+{"word":"顺手","start":11.672,"end":12.165},
+{"word":"创建","start":12.415,"end":12.919},
+{"word":"链","start":12.919,"end":13.17},
+{"word":"接","start":13.17,"end":13.422},
+{"word":"仓库","start":13.422,"end":13.926},
+{"word":"一","start":14.207,"end":14.452},
+{"word":"键","start":14.452,"end":14.697},
+{"word":"分享","start":14.697,"end":15.186},
+{"word":"别人","start":15.436,"end":15.864},
+{"word":"关注","start":15.864,"end":16.292},
+{"word":"一次","start":16.292,"end":16.719},
+{"word":"以后","start":17.015,"end":17.445},
+{"word":"更新","start":17.445,"end":17.874},
+{"word":"自动","start":17.874,"end":18.304},
+{"word":"同步","start":18.304,"end":18.733},
+{"word":"粘贴","start":18.984,"end":19.458},
+{"word":"链","start":19.458,"end":19.695},
+{"word":"接","start":19.695,"end":19.933},
+{"word":"时","start":19.933,"end":20.17},
+{"word":"重复","start":20.17,"end":20.645},
+{"word":"自动","start":20.645,"end":21.119},
+{"word":"提醒","start":21.119,"end":21.594},
+{"word":"失效","start":21.908,"end":22.363},
+{"word":"链","start":22.363,"end":22.59},
+{"word":"接","start":22.59,"end":22.818},
+{"word":"也能","start":22.818,"end":23.273},
+{"word":"一","start":23.273,"end":23.501},
+{"word":"键","start":23.501,"end":23.728},
+{"word":"清理","start":23.728,"end":24.184},
+{"word":"悬","start":24.434,"end":24.673},
+{"word":"停","start":24.673,"end":24.913},
+{"word":"就","start":24.913,"end":25.153},
+{"word":"能","start":25.153,"end":25.392},
+{"word":"预","start":25.392,"end":25.632},
+{"word":"览","start":25.632,"end":25.871},
+{"word":"网站","start":25.871,"end":26.351},
+{"word":"先看","start":26.658,"end":27.17},
+{"word":"内容","start":27.17,"end":27.683},
+{"word":"再","start":27.995,"end":28.247},
+{"word":"决定","start":28.247,"end":28.752},
+{"word":"打开","start":28.752,"end":29.257},
+{"word":"装","start":29.507,"end":29.752},
+{"word":"上","start":29.752,"end":29.997},
+{"word":"浏览","start":29.997,"end":30.486},
+{"word":"器","start":30.486,"end":30.731},
+{"word":"扩展","start":30.731,"end":31.22},
+{"word":"新","start":31.532,"end":31.763},
+{"word":"标签","start":31.763,"end":32.224},
+{"word":"页","start":32.224,"end":32.455},
+{"word":"就是","start":32.455,"end":32.916},
+{"word":"你的","start":32.916,"end":33.377},
+{"word":"效率","start":33.377,"end":33.839},
+{"word":"中心","start":33.839,"end":34.3},
+{"word":"收藏","start":34.55,"end":35.046},
+{"word":"再","start":35.046,"end":35.293},
+{"word":"多","start":35.293,"end":35.541},
+{"word":"也能","start":35.541,"end":36.037},
+{"word":"秒","start":36.037,"end":36.284},
+{"word":"搜","start":36.284,"end":36.532},
+{"word":"还","start":36.856,"end":37.093},
+{"word":"能","start":37.093,"end":37.331},
+{"word":"加上","start":37.331,"end":37.805},
+{"word":"待","start":37.805,"end":38.042},
+{"word":"办","start":38.042,"end":38.279},
+{"word":"行情","start":38.613,"end":39.125},
+{"word":"和","start":39.125,"end":39.38},
+{"word":"小组","start":39.38,"end":39.892},
+{"word":"件","start":39.892,"end":40.147},
+{"word":"LinkPad","start":40.398,"end":41.132},
+{"word":"收藏","start":41.366,"end":41.879},
+{"word":"好","start":41.879,"end":42.136},
+{"word":"链","start":42.136,"end":42.393},
+{"word":"接","start":42.393,"end":42.65},
+{"word":"分享","start":42.971,"end":43.485},
+{"word":"好","start":43.485,"end":43.742},
+{"word":"品味","start":43.742,"end":44.257}
+]}</script>
+</head>
+<body>
+<!--
+  huashu-motion contract (all optional, all plain HTML + GSAP):
+  1. Editable values are composition variables on <html>. The studio inspector edits their defaults.
+  2. data-om-id names things people can point at; comments arrive with the id under the pointer.
+  3. Timeline labels "scene:<id>" become the studio's scene strip.
+  No data-duration on the root: the film is as long as the timeline, so timing variables (endHold) can change it.
+-->
+<div id="film" data-composition-id="film" data-width="1920" data-height="1080">
+  <audio id="om-voice" src="assets/voice.wav" data-start="0" data-duration="44.256" data-track-index="9" data-volume="1"></audio>
+  <audio id="om-sound" src="assets/sound.wav" data-start="0" data-duration="44.3" data-track-index="8" data-volume="1"></audio>
+  <div class="stage-grid"></div>
+  <div class="stage-glow"></div>
+  <div class="light-sweep" id="light-sweep"></div>
+
+  <section id="s-hook" class="scene">
+    <div class="hairline" style="top:218px"></div>
+    <div class="hairline" style="bottom:198px"></div>
+    <div id="noise-field" data-om-id="noise-field"></div>
+    <div id="hook-copy" data-om-id="hook-copy">
+      <div class="kicker">LINKPAD · NAVIGATION + REPOS</div>
+      <h1 data-om-id="hook-title">
+        <span class="mask"><span class="in">别让好链接</span></span>
+        <span class="mask"><span class="in accent">散落成一堆书签</span></span>
+      </h1>
+      <p>常用网站、团队资料、灵感资源，<b>重新排成一屏</b>。</p>
+    </div>
+    <div class="brand-mark" id="hook-brand" data-om-id="hook-brand"><img src="assets/linkpad-icon.png" alt=""></div>
+  </section>
+
+  <section id="s-home" class="scene">
+    <div class="stage-grid"></div>
+    <div id="home-panel" class="panel" data-om-id="home-panel">
+      <div class="side">
+        <div class="brand"><img src="assets/linkpad-icon.png" alt=""><b>LinkPad</b></div>
+        <div class="side-item active"><i></i>首页</div>
+        <div class="side-item"><i></i>发现</div>
+        <div class="side-item"><i></i>我的仓库</div>
+        <div class="side-item"><i></i>设置</div>
+      </div>
+      <div class="main">
+        <h3>常用链接</h3><div class="sub">按访问频率自动排序</div>
+        <div class="link-grid" id="home-cards"></div>
+        <h3 style="margin-top:24px">AI 工具</h3><div class="sub">分类清晰，图标自动识别</div>
+        <div class="link-grid" id="ai-cards"></div>
+      </div>
+    </div>
+    <div class="caption"><span class="dot"></span><span class="mask"><span class="in">常用网站，一屏就位。</span></span></div>
+  </section>
+
+  <section id="s-repo" class="scene">
+    <div class="stage-grid"></div>
+    <div id="repo-panel" class="panel" data-om-id="repo-panel">
+      <div class="mono">PUBLIC REPO</div>
+      <h3>产品经理常用工具</h3>
+      <div class="repo-sub">覆盖原型、竞品分析、行业报告、设计灵感与协作工具</div>
+      <div class="vis-row"><span class="vis on">公开</span><span class="vis">私密</span><span class="vis">密码保护</span></div>
+      <div id="repo-list"></div>
+      <div id="follow-btn" data-om-id="follow-button"><span class="not-yet">关注</span><span class="followed">已关注</span></div>
+    </div>
+    <div class="sync-arrow" id="sync-arrow"></div>
+    <div id="sync-panel" class="panel" data-om-id="sync-panel">
+      <div class="sync-title">AUTO SYNCED TO YOUR HOME</div>
+      <div class="sync-row"><img src="assets/icons/figma.png" alt=""><div><b>Figma</b><small>来自：产品经理常用工具</small></div></div>
+      <div class="sync-row"><img src="assets/icons/notion.png" alt=""><div><b>Notion</b><small>来自：产品经理常用工具</small></div></div>
+      <div class="sync-row"><img src="assets/icons/chatgpt.png" alt=""><div><b>ChatGPT</b><small>来自：产品经理常用工具</small></div></div>
+    </div>
+    <div class="caption"><span class="dot"></span><span class="mask"><span class="in">关注一次，永远最新。</span></span></div>
+  </section>
+
+  <section id="s-quality" class="scene">
+    <div class="stage-grid"></div>
+    <div id="url-bar" class="panel"><div class="link-icon"></div><div id="url-text"></div><div id="url-caret"></div></div>
+    <div id="dup-toast" class="panel" data-om-id="duplicate-toast">
+      <div class="ic"></div>
+      <div><b>检测到重复链接</b><small>链接已存在于「AI 工具」 · 精确匹配</small></div>
+    </div>
+    <div id="dead-card" class="panel" data-om-id="dead-links-card">
+      <h4>检测到 3 个失效链接</h4>
+      <div class="hint">这些链接已无法访问，可勾选后一键移除</div>
+      <div class="dead-row"><span class="box"></span><div><b>旧版产品手册</b><small>old-manual.example.com</small></div><span class="http">HTTP 404</span></div>
+      <div class="dead-row"><span class="box"></span><div><b>历史竞品表</b><small>docs.sheetgo.com</small></div><span class="http">HTTP 404</span></div>
+      <div class="dead-row"><span class="box"></span><div><b>试用设计稿</b><small>figma.temp.link</small></div><span class="http">HTTP 404</span></div>
+      <div id="dead-clean">移除所选（3）</div>
+    </div>
+    <div class="caption"><span class="dot"></span><span class="mask"><span class="in">重复提醒，失效可清。</span></span></div>
+  </section>
+
+  <section id="s-preview" class="scene">
+    <div class="stage-grid"></div>
+    <div id="hover-glow"></div>
+    <div id="preview-card" class="panel" data-om-id="link-preview-card">
+      <div class="shot"><img src="assets/screens/notion.png" alt=""><div class="shine"><div></div></div></div>
+      <div class="meta">
+        <div><b>Notion · 产品规划 Workspace</b><small>NOTION.SO · 悬停预览</small></div>
+        <div class="open">打开链接</div>
+      </div>
+    </div>
+    <div id="hover-card" class="panel" data-om-id="hover-card">
+      <div style="display:flex;align-items:center;gap:14px">
+        <img src="assets/icons/notion.png" alt="" style="width:44px;height:44px;border-radius:13px;background:#fff;object-fit:cover">
+        <div><b style="display:block;font-size:20px;color:#F3F6FF">Notion</b><small style="font-size:11px;color:#8A94AA">notion.so</small></div>
+      </div>
+    </div>
+    <div class="caption"><span class="dot"></span><span class="mask"><span class="in">悬停预览，先看再开。</span></span></div>
+  </section>
+
+  <section id="s-extension" class="scene">
+    <div class="stage-grid"></div>
+    <div id="browser" class="panel" data-om-id="browser-window">
+      <div class="bar">
+        <div class="addr"><i></i><span>linkpad.site</span></div>
+      </div>
+      <div class="win">
+        <div class="home">
+          <div style="width:610px;height:64px;border-radius:17px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)"></div>
+          <div class="row"><div class="mini hot"></div><div class="mini"></div><div class="mini"></div><div class="mini"></div></div>
+          <div class="row"><div class="mini"></div><div class="mini"></div><div class="mini"></div><div class="mini"></div></div>
+        </div>
+      </div>
+    </div>
+    <div id="search-pill" class="panel"><span style="width:25px;height:25px;border-radius:8px;background:rgba(46,98,255,.16);border:1px solid rgba(46,98,255,.24)"></span><b>输入关键词，站内秒搜</b></div>
+    <div id="ext-pill" data-om-id="extension-pill">Chrome / Edge · 新标签页</div>
+    <div class="caption light"><span class="dot"></span><span class="mask"><span class="in">新标签页，就是效率中心。</span></span></div>
+  </section>
+
+  <section id="s-widgets" class="scene">
+    <div class="stage-grid"></div>
+    <div id="search-result" class="panel">
+      <div class="row"><img src="assets/icons/figma.png" alt=""><div><b>Figma · 设计工具</b><small>站内搜索 · 0.02 秒</small></div></div>
+    </div>
+    <div id="w-todo" class="panel widget" data-om-id="todo-widget">
+      <h5>待办事项<small>TODAY</small></h5>
+      <div class="todo-row done"><i></i><span>整理设计仓库</span></div>
+      <div class="todo-row" style="margin-top:10px"><i></i><span>发版本需求链接</span></div>
+      <div class="todo-row" style="margin-top:10px"><i></i><span>整理竞品资料</span></div>
+    </div>
+    <div id="w-stock" class="panel widget" data-om-id="stock-widget">
+      <h5>股票行情<small>MARKET</small></h5>
+      <div class="stat-big stock-up" id="stock-num">+2.34%</div>
+      <div class="spark"><svg viewBox="0 0 360 92"><path d="M8,72 C58,58 78,74 118,54 C158,34 178,64 222,42 C262,22 292,40 352,15" stroke="#45D68F"/></svg></div>
+    </div>
+    <div id="w-gold" class="panel widget" data-om-id="gold-widget">
+      <h5>黄金价格<small>GOLD / G</small></h5>
+      <div class="stat-big gold-val" id="gold-num">¥793.4</div>
+      <div class="spark"><svg viewBox="0 0 360 92"><path d="M8,34 C52,62 94,22 134,42 C174,64 214,30 256,49 C294,66 320,44 352,55" stroke="#FFB75C"/></svg></div>
+    </div>
+    <div class="caption"><span class="dot"></span><span class="mask"><span class="in">导航页，也是信息面板。</span></span></div>
+  </section>
+
+  <section id="s-montage" class="scene">
+    <div class="stage-grid"></div>
+    <div class="montage-shot" id="m1"><div class="panel montage-card"><div class="big">1 屏</div><div class="lab">常用网站一屏收纳</div></div></div>
+    <div class="montage-shot" id="m2"><div class="panel montage-card"><div class="big">1 次</div><div class="lab">关注仓库，自动同步</div></div></div>
+    <div class="montage-shot" id="m3"><div class="panel montage-card"><div class="big">0 手动</div><div class="lab">图标抓取 · 自动预览</div></div></div>
+    <div class="montage-shot" id="m4"><div class="panel montage-card"><div class="big">1 键</div><div class="lab">清理失效链接</div></div></div>
+    <div id="progress"><span><i></i></span><span><i></i></span><span><i></i></span><span><i></i></span></div>
+  </section>
+
+  <section id="s-logo" class="scene">
+    <div class="stage-grid"></div>
+    <div id="end-mark" data-om-id="end-logo"><div class="brand-mark"><img src="assets/linkpad-icon.png" alt=""></div></div>
+    <div class="end-title" id="end-title" data-om-id="end-title" data-om-var="tagline">收藏好链接，分享好品味</div>
+    <div class="end-url" id="end-url" data-om-id="end-url" data-om-var="url">linkpad.site</div>
+    <div class="end-note" id="end-note">开源 · 免费 · 新标签页效率中心</div>
+  </section>
+
+  <div class="flood blue" id="flood-blue"></div>
+  <div class="flood deep" id="flood-deep"></div>
+  <div id="cursor"></div>
+  <div id="click-ring"></div>
+  <div class="stage-vignette"></div>
+</div>
+
+<script>
+  const V = OM.vars();
+  const tl = gsap.timeline({ paused: true, defaults: { ease: 'power3.out' } });
+  OM.music({ bpm: 120, drop: 'preview', ending: 'ring' });
+
+  const homeData = [
+    { name: 'Google', desc: '全球最大的搜索引擎', icon: 'google.png', hot: true },
+    { name: 'ChatGPT', desc: 'OpenAI 强大的 AI 对话模型', icon: 'chatgpt.png', hot: true },
+    { name: 'Figma', desc: '协作式界面设计工具', icon: 'figma.png' },
+    { name: 'Notion', desc: '知识管理与协作工作区', icon: 'notion.png' },
+    { name: 'GitHub', desc: '全球最大的代码托管平台', icon: 'github.png' },
+    { name: 'Claude', desc: 'Anthropic 的智能 AI 助手', icon: 'claude.png' },
+    { name: 'Gemini', desc: 'Google 的多模态 AI 模型', icon: 'gemini.png' },
+    { name: 'Bing', desc: '微软旗下的搜索引擎', icon: 'bing.png' },
+  ];
+  const aiData = [
+    { name: 'Midjourney', desc: '高质量 AI 图像生成工具', icon: 'midjourney.png' },
+    { name: 'YouTube', desc: '全球最大的视频分享平台', icon: 'youtube.png' },
+    { name: 'Bilibili', desc: '学习与娱乐都在这', icon: 'bilibili.png' },
+    { name: '百度', desc: '最大的中文搜索引擎', icon: 'baidu.png' },
+  ];
+  const fill = (id, data) => {
+    document.getElementById(id).innerHTML = data.map(x => `<div class="link-card${x.hot ? ' hot' : ''}"><img src="assets/icons/${x.icon}" alt=""><div><b>${x.name}</b><small>${x.desc}</small></div></div>`).join('');
+  };
+  fill('home-cards', homeData); fill('ai-cards', aiData);
+
+  const repoData = [
+    { name: 'Notion 产品模板', desc: 'PRD、用户故事与复盘模板', icon: 'notion.png' },
+    { name: 'Figma 原型链接', desc: 'V2.6 移动端改版原型', icon: 'figma.png' },
+    { name: '竞品分析看板', desc: '最新功能矩阵与定价', icon: 'chatgpt.png' },
+  ];
+  document.getElementById('repo-list').innerHTML = repoData.map(x => `<div class="repo-link"><img src="assets/icons/${x.icon}" alt=""><div><b>${x.name}</b><small>${x.desc}</small></div><span class="repo-count">已同步</span></div>`).join('');
+
+  const noiseField = document.getElementById('noise-field');
+  for (let i = 0; i < 78; i++) {
+    const n = document.createElement('div');
+    n.className = 'noise';
+    noiseField.appendChild(n);
+  }
+  const noises = gsap.utils.toArray('.noise');
+  const rnd = OM.random(20261025);
+  noises.forEach((n) => gsap.set(n, { x: 260 + rnd() * 1400, y: 100 + rnd() * 880, scale: .2, autoAlpha: 0, rotation: (rnd() - .5) * 90 }));
+
+  gsap.set('#hook-brand', { x: 0, y: 0, scale: 1.18, autoAlpha: 0 });
+  gsap.set('#hook-copy .in', { yPercent: 118 });
+  gsap.set('#hook-copy p', { autoAlpha: 0, y: 17 });
+  gsap.set('#home-panel', { autoAlpha: 0, y: 38, scale: .96 });
+  gsap.set('#home-cards .link-card, #ai-cards .link-card', { autoAlpha: 0, y: 19, scale: .96 });
+  gsap.set('.caption .in', { yPercent: 122 });
+  gsap.set('#repo-panel', { autoAlpha: 0, y: 31, scale: .97 });
+  gsap.set('#repo-list .repo-link', { autoAlpha: 0, y: 16 });
+  gsap.set('#sync-panel', { autoAlpha: 0, x: 38, scale: .97 });
+  gsap.set('#sync-panel .sync-row', { autoAlpha: 0, x: 26 });
+  gsap.set('#url-text', { text: '' });
+  gsap.set('#dup-toast', { autoAlpha: 0, y: 19 });
+  gsap.set('#dead-card', { autoAlpha: 0, y: 35, scale: .96 });
+  gsap.set('.dead-row', { autoAlpha: 0, y: 15 });
+  gsap.set('#dead-clean', { autoAlpha: 0, y: 12 });
+  gsap.set('.dead-row .box:after', { scale: 0 });
+  gsap.set('#preview-card', { autoAlpha: 0, y: 34, scale: .94 });
+  gsap.set('#preview-card img', { autoAlpha: 0, scale: 1.07 });
+  gsap.set('#preview-card .shine div', { xPercent: -100 });
+  gsap.set('#hover-card', { autoAlpha: 0, scale: .9 });
+  gsap.set('#browser', { autoAlpha: 0, y: 41, scale: .91 });
+  gsap.set('#search-pill', { autoAlpha: 0, y: 18, scale: .97 });
+  gsap.set('.widget, #search-result', { autoAlpha: 0, y: 36, scale: .94 });
+  gsap.set('.montage-shot', { autoAlpha: 0 });
+  gsap.set('#progress i', { scaleX: 0 });
+  gsap.set('#s-logo', { autoAlpha: 0 });
+  gsap.set('#end-title, .end-url, .end-note', { autoAlpha: 0 });
+  gsap.set('#cursor', { x: 960, y: 540, autoAlpha: 0 });
+  gsap.set('#click-ring', { x: 960, y: 540, scale: .2, autoAlpha: 0 });
+  gsap.set('#flood-blue, #flood-deep', { autoAlpha: 0, scale: .3 });
+
+  const flood = (sel, at, inDur = .38, outDur = .48) => {
+    tl.to(sel, { autoAlpha: 1, scale: 1, duration: inDur, ease: 'power2.in' }, at)
+      .to(sel, { autoAlpha: 0, scale: 1.05, duration: outDur, ease: 'power2.out' }, at + inDur);
+  };
+
+  // 01 Hook
+  tl.addLabel('scene:hook', 0)
+    .to('#hook-brand', { autoAlpha: 1, duration: .16 }, 0)
+    .fromTo('#hook-brand', { y: -230, scale: 1.72 }, { y: 0, scale: 1.18, duration: .58, ease: 'bounce.out', immediateRender: false }, 0)
+    .to(noises, { autoAlpha: 1, scale: 1, duration: .72, stagger: .005, ease: 'expo.out' }, .25)
+    .to('#hook-copy .in', { yPercent: 0, duration: .78, stagger: .11, ease: 'expo.out' }, .58)
+    .to('#hook-copy p', { autoAlpha: 1, y: 0, duration: .58 }, 1.15)
+    .to(noises, { autoAlpha: 0, scale: .1, x: 940, y: 510, duration: .62, stagger: .004, ease: 'power3.inOut' }, 2.10)
+    .to('#hook-brand', { scale: 1.42, duration: .31, ease: 'power2.out' }, 2.24)
+    .to('#flood-deep', { autoAlpha: 1, scale: 1, duration: .55, ease: 'power3.inOut' }, 2.72)
+    .to('#flood-deep', { autoAlpha: 0, scale: 1.08, duration: .55, ease: 'power2.out' }, 3.18)
+    .to('#s-hook', { autoAlpha: 0, duration: .26 }, 2.95);
+
+  // 02 Home
+  tl.addLabel('scene:home', 6.9)
+    .to('#s-home', { autoAlpha: 1, duration: .01 }, 6.9)
+    .to('#home-panel', { autoAlpha: 1, y: 0, scale: 1, duration: .72, ease: 'expo.out' }, 6.9)
+    .to('#home-cards .link-card', { autoAlpha: 1, y: 0, scale: 1, duration: .48, stagger: .034, ease: 'expo.out' }, 7.16)
+    .to('#ai-cards .link-card', { autoAlpha: 1, y: 0, scale: 1, duration: .44, stagger: .034, ease: 'expo.out' }, 7.98)
+    .to('.caption .in', { yPercent: 0, duration: .54, ease: 'expo.out' }, 8.65)
+    .to('#s-home', { autoAlpha: 0, duration: .24 }, 11.52);
+
+  // 03 Repo + sync
+  tl.addLabel('scene:repo', 11.7)
+    .to('#s-repo', { autoAlpha: 1, duration: .01 }, 11.7)
+    .to('#repo-panel', { autoAlpha: 1, y: 0, scale: 1, duration: .68, ease: 'expo.out' }, 11.7)
+    .to('#repo-list .repo-link', { autoAlpha: 1, y: 0, duration: .44, stagger: .034, ease: 'expo.out' }, 11.94)
+    .to('.caption .in', { yPercent: 0, duration: .5, ease: 'expo.out' }, 12.25)
+    .to('#cursor', { autoAlpha: 1, x: 1108, y: 338, duration: .56, ease: 'power3.out' }, 12.42)
+    .to('#cursor', { x: 1102, y: 341, duration: .17, ease: 'power2.inOut' }, 12.94)
+    .to('#click-ring', { autoAlpha: 1, scale: 1, x: 1102, y: 348, duration: .3, ease: 'expo.out' }, 13.04)
+    .to('#click-ring', { autoAlpha: 0, scale: 2.2, duration: .45, ease: 'power2.out' }, 13.18)
+    .to('#follow-btn', { scale: .94, duration: .1, ease: 'power2.in' }, 13.04)
+    .to('#follow-btn', { scale: 1, duration: .28, ease: 'back.out(1.8)' }, 13.14)
+    .to('#follow-btn .not-yet', { autoAlpha: 0, duration: .08 }, 13.15)
+    .to('#follow-btn .followed', { autoAlpha: 1, duration: .08 }, 13.15)
+    .to('#follow-btn', { background: 'linear-gradient(135deg,#12B873,#1BD08A)', boxShadow: '0 14px 38px rgba(18,184,115,.22)', duration: .3 }, 13.15)
+    .to('#sync-arrow', { scaleX: 1, duration: .55, ease: 'expo.out' }, 13.45)
+    .to('#sync-panel', { autoAlpha: 1, x: 0, scale: 1, duration: .6, ease: 'expo.out' }, 13.55)
+    .to('#sync-panel .sync-row', { autoAlpha: 1, x: 0, duration: .45, stagger: .09, ease: 'expo.out' }, 13.82)
+    .to('#cursor', { autoAlpha: 0, duration: .2 }, 14.70)
+    .to('#s-repo', { autoAlpha: 0, duration: .25 }, 17.88)
+    .to('#flood-blue', { autoAlpha: 1, scale: 1, duration: .35, ease: 'power2.in' }, 17.75)
+    .to('#flood-blue', { autoAlpha: 0, scale: 1.05, duration: .45 }, 18.10);
+
+  // 04 Quality: duplicates + dead links
+  tl.addLabel('scene:quality', 18.1)
+    .to('#s-quality', { autoAlpha: 1, duration: .01 }, 18.1)
+    .to('#url-bar', { autoAlpha: 1, y: 0, scale: 1, duration: .58, ease: 'expo.out' }, 18.1)
+    .to('#url-caret', { autoAlpha: 1, duration: .12 }, 18.45)
+    .to('#url-text', { text: 'notion.so/product-v26', duration: .62, ease: 'none' }, 18.45)
+    .to('#dup-toast', { autoAlpha: 1, y: 0, duration: .5, ease: 'back.out(1.3)' }, 19.12)
+    .to('#url-caret', { autoAlpha: 0, duration: .15 }, 19.35)
+    .to('#dead-card', { autoAlpha: 1, y: 0, scale: 1, duration: .62, ease: 'expo.out' }, 20.25)
+    .to('.dead-row', { autoAlpha: 1, y: 0, duration: .45, stagger: .06, ease: 'expo.out' }, 20.52)
+    .to('.dead-row .box:after', { scale: 1, duration: .18, stagger: .07, ease: 'back.out(2)' }, 21.28)
+    .to('#dead-clean', { autoAlpha: 1, y: 0, duration: .42, ease: 'expo.out' }, 21.65)
+    .to('#dead-card', { scale: .98, duration: .12, ease: 'power2.in' }, 22.12)
+    .to('.dead-row', { autoAlpha: 0, y: -12, duration: .26, stagger: .045, ease: 'power2.in' }, 22.15)
+    .to('.dead-row', { y: 0, duration: .01 }, 22.65)
+    .to('#dead-card h4', { text: '清理完成', duration: .01 }, 22.55)
+    .to('#dead-card .hint', { text: '3 个失效链接已移除', duration: .01 }, 22.55)
+    .to('#dead-clean', { autoAlpha: 0, y: -10, duration: .2 }, 22.15)
+    .to('#s-quality', { autoAlpha: 0, duration: .25 }, 23.50)
+    .to('#flood-deep', { autoAlpha: 1, scale: 1, duration: .32, ease: 'power2.in' }, 23.38)
+    .to('#flood-deep', { autoAlpha: 0, scale: 1.05, duration: .45 }, 23.70);
+
+  // 05 Preview hero
+  tl.addLabel('scene:preview', 23.7)
+    .to('#s-preview', { autoAlpha: 1, duration: .01 }, 23.7)
+    .to('#hover-card', { autoAlpha: 1, scale: 1, duration: .5, ease: 'expo.out' }, 23.7)
+    .to('#preview-card', { autoAlpha: 1, y: 0, scale: 1, duration: .74, ease: 'expo.out' }, 23.88)
+    .to('#preview-card img', { autoAlpha: 1, scale: 1, duration: .8, ease: 'power2.out' }, 24.05)
+    .to('#preview-card .shine div', { xPercent: 314, duration: .88, ease: 'power2.inOut' }, 24.42)
+    .to('.caption .in', { yPercent: 0, duration: .54, ease: 'expo.out' }, 24.95)
+    .to('#preview-card', { scale: 1.015, duration: 1.6, ease: 'power2.inOut' }, 25.30)
+    .to('#s-preview', { autoAlpha: 0, duration: .25 }, 28.85)
+    .to('#flood-blue', { autoAlpha: 1, scale: 1, duration: .32, ease: 'power2.in' }, 28.73)
+    .to('#flood-blue', { autoAlpha: 0, scale: 1.05, duration: .45 }, 29.05);
+
+  // 06 Extension
+  tl.addLabel('scene:extension', 28.1)
+    .to('#s-extension', { autoAlpha: 1, duration: .01 }, 28.1)
+    .to('#browser', { autoAlpha: 1, y: 0, scale: 1, duration: .78, ease: 'expo.out' }, 28.1)
+    .to('.caption .in', { yPercent: 0, duration: .55, ease: 'expo.out' }, 28.8)
+    .to('#search-pill', { autoAlpha: 1, y: 0, scale: 1, duration: .55, ease: 'expo.out' }, 29.85)
+    .to('#ext-pill', { autoAlpha: 1, y: 0, duration: .45, ease: 'expo.out' }, 30.75)
+    .to('#s-extension', { autoAlpha: 0, duration: .25 }, 31.85)
+    .to('#flood-deep', { autoAlpha: 1, scale: 1, duration: .3, ease: 'power2.in' }, 31.73)
+    .to('#flood-deep', { autoAlpha: 0, scale: 1.05, duration: .45 }, 32.03);
+
+  // 07 Widgets + search
+  tl.addLabel('scene:widgets', 33.1)
+    .to('#s-widgets', { autoAlpha: 1, duration: .01 }, 33.1)
+    .to('#search-result', { autoAlpha: 1, y: 0, scale: 1, duration: .52, ease: 'expo.out' }, 33.1)
+    .to('#w-todo', { autoAlpha: 1, y: 0, scale: 1, duration: .55, ease: 'expo.out' }, 33.6)
+    .to('#w-stock', { autoAlpha: 1, y: 0, scale: 1, duration: .55, ease: 'expo.out' }, 33.88)
+    .to('#w-gold', { autoAlpha: 1, y: 0, scale: 1, duration: .55, ease: 'expo.out' }, 34.16)
+    .to('.caption .in', { yPercent: 0, duration: .54, ease: 'expo.out' }, 34.85)
+    .to('#s-widgets', { autoAlpha: 0, duration: .22 }, 37.28)
+    .to('#flood-blue', { autoAlpha: 1, scale: 1, duration: .28, ease: 'power2.in' }, 37.16)
+    .to('#flood-blue', { autoAlpha: 0, scale: 1.05, duration: .45 }, 37.44);
+
+  // 08 Montage
+  tl.addLabel('scene:montage', 38.6)
+    .to('#s-montage', { autoAlpha: 1, duration: .01 }, 38.6)
+    .to('#progress', { autoAlpha: 1, duration: .01 }, 38.6);
+  ['m1', 'm2', 'm3', 'm4'].forEach((id, i) => {
+    const at = 38.6 + i;
+    tl.to(`#${id}`, { autoAlpha: 1, duration: .01 }, at)
+      .fromTo(`#${id}`, { scale: 1.06 }, { scale: 1, duration: .55, ease: 'power3.out', immediateRender: false }, at)
+      .to(`#progress span:nth-child(${i + 1}) i`, { scaleX: 1, duration: .2, ease: 'power2.out' }, at);
+    if (i < 3) tl.to(`#${id}`, { autoAlpha: 0, duration: .08 }, at + 1);
+  });
+  tl.to('#s-montage', { autoAlpha: 0, duration: .2 }, 42.28)
+    .to('#flood-deep', { autoAlpha: 1, scale: 1, duration: .28, ease: 'power2.in' }, 42.16)
+    .to('#flood-deep', { autoAlpha: 0, scale: 1.05, duration: .45 }, 42.44);
+
+  // 09 End card
+  tl.addLabel('scene:logo', 42.8)
+    .to('#s-logo', { autoAlpha: 1, duration: .01 }, 42.8)
+    .fromTo('#end-mark', { y: 26, scale: .94, autoAlpha: 0 }, { y: 0, scale: 1, autoAlpha: 1, duration: .75, ease: 'expo.out', immediateRender: false }, 42.82)
+    .to('#end-title', { autoAlpha: 1, y: 0, duration: .65, ease: 'expo.out' }, 43.12)
+    .to('.end-url', { autoAlpha: 1, y: 0, duration: .58, ease: 'expo.out' }, 43.38)
+    .to('.end-note', { autoAlpha: 1, y: 0, duration: .52, ease: 'expo.out' }, 43.62)
+    .to({}, { duration: V.endHold }, 42.8);
+
+  // Sound cues
+  OM.sfx('whoosh', 0.0, { gain: .35 });
+  OM.sfx('thud', 0.52, { gain: .55 });
+  OM.sfx('impact', 0.96, { gain: .48 });
+  OM.sfx('hit', 2.10, { gain: .32 });
+  OM.sfx('whoosh', 2.72, { gain: .40 });
+  OM.sfx('thud', 6.92, { gain: .55 });
+  OM.sfx('pop', 7.22, { gain: .20, note: 1 });
+  OM.sfx('pop', 7.34, { gain: .18, note: 2 });
+  OM.sfx('pop', 7.46, { gain: .16, note: 3 });
+  OM.sfx('whoosh', 11.52, { gain: .34 });
+  OM.sfx('thud', 11.72, { gain: .50 });
+  OM.sfx('click', 13.04, { gain: .32 });
+  OM.sfx('ding', 13.18, { gain: .35, note: 5 });
+  OM.sfx('sparkle', 13.88, { gain: .30 });
+  OM.sfx('whoosh', 17.75, { gain: .34 });
+  OM.sfx('type', 18.45, { gain: .20, dur: .62 });
+  OM.sfx('pop', 19.12, { gain: .32 });
+  OM.sfx('ding', 20.32, { gain: .28, note: 3 });
+  OM.sfx('tick', 21.28, { gain: .22 });
+  OM.sfx('click', 22.12, { gain: .34 });
+  OM.sfx('ding', 22.25, { gain: .30, note: 7 });
+  OM.sfx('whoosh', 23.38, { gain: .34 });
+  OM.sfx('impact', 23.88, { gain: .58 });
+  OM.sfx('subdrop', 23.88, { gain: .40, dur: .9 });
+  OM.sfx('sparkle', 24.42, { gain: .28 });
+  OM.sfx('whoosh', 28.73, { gain: .32 });
+  OM.sfx('thud', 28.12, { gain: .48 });
+  OM.sfx('pop', 29.85, { gain: .26 });
+  OM.sfx('click', 33.1, { gain: .26 });
+  OM.sfx('pop', 33.6, { gain: .22, note: 1 });
+  OM.sfx('pop', 33.88, { gain: .20, note: 2 });
+  OM.sfx('pop', 34.16, { gain: .18, note: 3 });
+  OM.sfx('hit', 38.6, { gain: .45 });
+  OM.sfx('hit', 39.6, { gain: .42 });
+  OM.sfx('hit', 40.6, { gain: .44 });
+  OM.sfx('hit', 41.6, { gain: .46 });
+  OM.sfx('ding', 41.8, { gain: .25, note: 5 });
+  OM.sfx('whoosh', 42.16, { gain: .28 });
+  OM.sfx('impact', 42.82, { gain: .45 });
+  OM.sfx('chime', 43.12, { gain: .40 });
+  OM.sfx('sparkle', 43.65, { gain: .18 });
+
+  window.__timelines['film'] = tl;
+</script>
+</body>
+</html>

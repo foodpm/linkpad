@@ -1,0 +1,22 @@
+{
+  "capturedAt": "2026-10-19T07:25:05.000Z",
+  "baseUrl": "http://127.0.0.1:3000",
+  "viewport": {
+    "width": 1920,
+    "height": 1080,
+    "deviceScaleFactor": 2
+  },
+  "repoId": "44aabffa-4f6b-49ff-9105-59fd2462723e",
+  "shots": [
+    "01-home",
+    "02-search",
+    "03-private-locked",
+    "04-private-unlocked",
+    "05-repo",
+    "06-follow-modal",
+    "07-followed",
+    "08-add-link",
+    "09-discover",
+    "10-user-panel"
+  ]
+}

@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="zh-CN" data-composition-variables='[
+  {"id":"tagline","type":"string","label":"结尾标语","default":"收藏好链接，分享好品味"},
+  {"id":"url","type":"string","label":"网址","default":"linkpad.site"},
+  {"id":"blue","type":"color","label":"LinkPad 蓝","default":"#2858F8"},
+  {"id":"violet","type":"color","label":"LinkPad 紫","default":"#6038F0"},
+  {"id":"ink","type":"color","label":"文字色","default":"#2D2F3E"},
+  {"id":"paper","type":"color","label":"底色","default":"#F3F4F8"},
+  {"id":"endHold","type":"number","label":"结尾停留（秒）","default":4,"min":2,"max":8,"step":0.1,"group":"节奏"}
+]'>
+<head>
+<meta charset="utf-8">
+<title>LinkPad · 收藏好链接，分享好品味</title>
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/om.js"></script>
+<style>
+@font-face { font-family: "Noto Sans SC"; src: url("assets/fonts/NotoSansSC-500.woff") format("woff"); font-weight: 500; font-style: normal; }
+@font-face { font-family: "Noto Sans SC"; src: url("assets/fonts/NotoSansSC-700.woff") format("woff"); font-weight: 700; font-style: normal; }
+@font-face { font-family: "Noto Sans SC"; src: url("assets/fonts/NotoSansSC-900.woff") format("woff"); font-weight: 900; font-style: normal; }
+@font-face { font-family: "Geist"; src: url("assets/fonts/geist-var.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Bricolage"; src: url("assets/fonts/bricolage-var.woff2") format("woff2"); font-weight: 200 800; }
+@font-face { font-family: "DSEG7"; src: url("assets/fonts/DSEG7Classic-Bold.woff2") format("woff2"); font-weight: 700; }
+
+:root {
+  --blue: #2858F8;
+  --violet: #6038F0;
+  --ink: #2D2F3E;
+  --paper: #F3F4F8;
+}
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--paper); }
+#film {
+  position: relative; width: 100%; height: 100%; overflow: hidden;
+  background: var(--paper); color: var(--ink);
+  font-family: "Noto Sans SC", "Geist", sans-serif; font-weight: 500;
+}
+* { box-sizing: border-box; }
+.scene { position: absolute; inset: 0; overflow: hidden; }
+.soft-grid {
+  position: absolute; inset: 0;
+  background-image: linear-gradient(rgba(45,47,62,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(45,47,62,.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse at 50% 45%, black 20%, transparent 72%);
+}
+.grain {
+  position: absolute; inset: 0; pointer-events: none; opacity: .38;
+  background:
+    radial-gradient(1200px 700px at 18% 6%, rgba(255,255,255,.9), transparent 62%),
+    radial-gradient(900px 700px at 90% 100%, rgba(96,56,240,.10), transparent 60%),
+    radial-gradient(700px 500px at 60% 30%, rgba(40,88,248,.08), transparent 62%);
+}
+.eyebrow {
+  font-family: "Geist", sans-serif; font-size: 15px; font-weight: 600;
+  letter-spacing: .24em; text-transform: uppercase; color: var(--blue);
+}
+.caption {
+  position: absolute; left: 140px; bottom: 56px; display: flex; align-items: center; gap: 16px;
+  font-size: 33px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); z-index: 20;
+}
+.caption .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 6px rgba(40,88,248,.12); }
+.caption .cap-mask { overflow: hidden; padding-bottom: .22em; line-height: 1.32; }
+.caption .cap-inner { display: block; }
+.caption.light { color: #F7FAFF; }
+.caption.light .dot { background: #A9B8FF; box-shadow: 0 0 0 6px rgba(169,184,255,.18); }
+
+/* shared mark */
+#hero-mark {
+  position: absolute; left: 0; top: 0; width: 120px; height: 120px; z-index: 80;
+  border-radius: 32px; background: #fff; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 24px 70px rgba(40,88,248,.22), 0 4px 14px rgba(45,47,62,.12);
+  border: 1px solid rgba(255,255,255,.9); overflow: hidden; will-change: transform;
+}
+#hero-mark img { width: 82%; height: 82%; object-fit: contain; }
+
+/* hook */
+.hook { background: linear-gradient(135deg, #F7F8FC 0%, #EEF1FA 55%, #F7F4FC 100%); }
+.hook-copy { position: absolute; left: 130px; top: 220px; width: 790px; z-index: 8; }
+.hook-title { margin: 22px 0 0; font-size: 92px; line-height: 1.08; letter-spacing: -.06em; font-weight: 900; color: var(--ink); }
+.hook-title .mask { display: block; overflow: hidden; padding-bottom: .12em; }
+.hook-title .inner { display: block; }
+.hook-title .accent { background: linear-gradient(100deg, var(--blue), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hook-sub { margin: 34px 0 0; font-size: 25px; line-height: 1.7; color: #5E6478; max-width: 680px; }
+.hook-sub strong { color: var(--ink); font-weight: 700; }
+.chaos-chip {
+  position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 12px;
+  height: 58px; padding: 0 18px 0 10px; border-radius: 18px;
+  background: rgba(255,255,255,.80); border: 1px solid rgba(255,255,255,.92);
+  box-shadow: 0 14px 34px rgba(45,47,62,.10); backdrop-filter: blur(14px);
+  font-family: "Geist", "Noto Sans SC", sans-serif; font-size: 16px; font-weight: 600; color: #3A3D4E;
+  white-space: nowrap; will-change: transform;
+}
+.chaos-chip img { width: 34px; height: 34px; border-radius: 10px; object-fit: cover; }
+.chaos-chip .url { font-size: 12px; color: #8A8FA1; font-weight: 500; margin-left: 2px; }
+.chaos-chip.hot { border-color: rgba(229,72,77,.35); color: #C7343A; }
+.chaos-chip.hot .url { color: #C7343A; opacity: .7; }
+.chaos-line { position: absolute; inset: 0; z-index: 1; opacity: .55; }
+.hook-ring {
+  position: absolute; left: 0; top: 0; width: 120px; height: 120px; border-radius: 36px;
+  border: 2px solid rgba(40,88,248,.28); z-index: 79;
+}
+
+/* home */
+.home { background: linear-gradient(135deg, #EDF1FA 0%, #F8F9FC 52%, #F2EEFB 100%); }
+.home-panel {
+  position: absolute; left: 180px; top: 100px; width: 1560px; height: 880px;
+  border-radius: 34px; background: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.94);
+  box-shadow: 0 40px 100px rgba(40,65,140,.14), 0 8px 24px rgba(45,47,62,.06);
+  backdrop-filter: blur(28px); display: flex; overflow: hidden;
+}
+.home-side { width: 260px; flex-shrink: 0; padding: 26px 18px 22px; border-right: 1px solid rgba(45,47,62,.07); background: rgba(255,255,255,.42); position: relative; }
+.side-brand { height: 66px; display: flex; align-items: center; gap: 14px; padding: 0 8px 0 6px; margin-bottom: 22px; }
+.side-brand .word { font-family: "Bricolage", sans-serif; font-size: 28px; font-weight: 800; letter-spacing: -.06em; color: #2D2F3E; }
+.side-nav { display: flex; flex-direction: column; gap: 4px; }
+.side-row { height: 38px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 11px; font-size: 14px; color: #656A7C; }
+.side-row.active { background: rgba(255,255,255,.85); color: var(--blue); box-shadow: 0 3px 10px rgba(45,47,62,.05); }
+.side-row .ic { width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid currentColor; opacity: .75; }
+.side-sub { margin: 6px 0 0 38px; display: flex; flex-direction: column; gap: 2px; }
+.side-sub span { height: 28px; display: flex; align-items: center; font-size: 12px; color: #8C90A0; }
+.side-bottom { position: absolute; left: 16px; bottom: 28px; display: flex; align-items: center; gap: 10px; font-size: 12px; color: #8A8FA1; }
+.avatar-dot { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--blue), var(--violet)); box-shadow: 0 4px 12px rgba(40,88,248,.25); }
+.home-main { flex: 1; position: relative; padding: 34px 46px 30px; min-width: 0; }
+.home-top { display: flex; align-items: flex-start; justify-content: space-between; }
+.clock {
+  font-family: "DSEG7", monospace; font-size: 108px; line-height: .9; font-weight: 700; letter-spacing: -.03em;
+  color: #27324B; text-shadow: 0 1px 0 rgba(255,255,255,.8), 0 10px 30px rgba(40,88,248,.13);
+}
+.clock-sub { margin-top: 8px; text-align: center; font-size: 14px; color: #8B90A2; letter-spacing: .04em; }
+.home-date { text-align: right; font-size: 13px; color: #8B90A2; line-height: 1.8; }
+.home-date b { color: #555B70; font-weight: 700; }
+.search {
+  position: absolute; left: 50%; top: 210px; transform: translateX(-50%);
+  width: 900px; height: 64px; border-radius: 32px; display: flex; align-items: center; gap: 16px;
+  padding: 0 24px; background: rgba(255,255,255,.62); border: 1px solid rgba(255,255,255,.95);
+  box-shadow: 0 12px 34px rgba(45,47,62,.08); backdrop-filter: blur(18px);
+}
+.search .chan { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: #fff; box-shadow: 0 2px 8px rgba(45,47,62,.10); }
+.search .chan img { width: 22px; height: 22px; }
+.search .ph { flex: 1; font-size: 18px; color: #9A9EAF; }
+.search .key { font-family: "Geist", sans-serif; font-size: 11px; color: #8A8FA1; border: 1px solid rgba(45,47,62,.12); border-radius: 6px; padding: 3px 6px; }
+.home-content { position: absolute; left: 46px; right: 46px; top: 304px; bottom: 30px; }
+.section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.section-title h3 { margin: 0; font-size: 17px; font-weight: 700; color: #3A3D4E; }
+.section-title span { font-size: 11px; color: #9A9EAF; }
+.card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.link-card {
+  height: 78px; border-radius: 17px; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+  background: rgba(255,255,255,.62); border: 1px solid rgba(255,255,255,.92);
+  box-shadow: 0 3px 10px rgba(45,47,62,.035); will-change: transform;
+}
+.link-card .ico { width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0; object-fit: cover; background: #fff; box-shadow: 0 2px 6px rgba(45,47,62,.08); }
+.link-card .txt { min-width: 0; }
+.link-card b { display: block; font-size: 14px; font-weight: 700; color: #343746; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.link-card small { display: block; margin-top: 3px; font-size: 11px; color: #9A9EAF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.repo-peek {
+  position: absolute; right: 46px; bottom: 30px; width: 430px; height: 112px; border-radius: 20px;
+  background: linear-gradient(135deg, rgba(40,88,248,.95), rgba(96,56,240,.95));
+  box-shadow: 0 18px 46px rgba(40,88,248,.22); color: #fff; padding: 18px 20px; display: flex; align-items: center; gap: 14px;
+}
+.repo-peek .mini-ico { width: 48px; height: 48px; border-radius: 14px; background: rgba(255,255,255,.18); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; }
+.repo-peek b { display: block; font-size: 16px; }
+.repo-peek small { display: block; margin-top: 4px; font-size: 11px; opacity: .8; }
+.repo-peek .follow { margin-left: auto; font-size: 12px; font-weight: 700; padding: 8px 12px; border-radius: 10px; background: #fff; color: var(--blue); }
+
+/* repo */
+.repo { background: linear-gradient(135deg, #F0F3FB 0%, #FAFAFD 50%, #F4F0FC 100%); }
+.repo-panel {
+  position: absolute; left: 210px; top: 132px; width: 990px; height: 806px; border-radius: 32px;
+  background: rgba(255,255,255,.78); border: 1px solid rgba(255,255,255,.96);
+  box-shadow: 0 40px 100px rgba(40,65,140,.14), 0 8px 24px rgba(45,47,62,.06);
+  backdrop-filter: blur(28px); padding: 38px 42px; overflow: hidden;
+}
+.repo-head { display: flex; align-items: flex-start; gap: 22px; }
+.repo-big-ico { width: 96px; height: 96px; border-radius: 26px; background: linear-gradient(135deg, var(--blue), var(--violet)); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 34px; font-weight: 900; box-shadow: 0 14px 32px rgba(40,88,248,.24); flex-shrink: 0; }
+.repo-head h2 { margin: 2px 0 0; font-size: 38px; letter-spacing: -.04em; color: #282B39; }
+.repo-head p { margin: 10px 0 0; font-size: 15px; line-height: 1.6; color: #777C90; max-width: 600px; }
+.repo-meta { display: flex; gap: 22px; margin-top: 16px; font-size: 12px; color: #8D92A4; }
+.repo-meta b { color: #4D5266; }
+.follow-btn {
+  margin-left: auto; height: 46px; padding: 0 20px; border-radius: 14px; display: flex; align-items: center; gap: 9px;
+  background: linear-gradient(135deg, var(--blue), var(--violet)); color: #fff; font-size: 14px; font-weight: 700;
+  box-shadow: 0 10px 26px rgba(40,88,248,.22); white-space: nowrap; position: relative;
+}
+.follow-btn .heart { width: 16px; height: 16px; border: 2px solid currentColor; border-radius: 50% 50% 45% 45%; transform: rotate(45deg); }
+.follow-text { position: relative; display: inline-block; width: 45px; height: 18px; }
+.follow-text span { position: absolute; inset: 0; }
+.follow-text .followed { opacity: 0; }
+.repo-tabs { display: flex; gap: 26px; margin-top: 30px; border-bottom: 1px solid rgba(45,47,62,.08); padding-bottom: 14px; font-size: 13px; color: #8D92A4; }
+.repo-tabs b { color: var(--blue); font-weight: 700; position: relative; }
+.repo-tabs b::after { content: ""; position: absolute; left: 0; right: 0; bottom: -15px; height: 2px; background: var(--blue); border-radius: 2px; }
+.repo-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; }
+.repo-link { height: 76px; border-radius: 16px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: rgba(255,255,255,.64); border: 1px solid rgba(255,255,255,.92); }
+.repo-link img { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; }
+.repo-link b { display: block; font-size: 13px; color: #3B3E4E; }
+.repo-link small { display: block; font-size: 10px; color: #9A9EAF; margin-top: 3px; }
+.repo-sync {
+  position: absolute; right: 120px; top: 222px; width: 470px; height: 620px; border-radius: 28px;
+  background: rgba(255,255,255,.66); border: 1px solid rgba(255,255,255,.95); box-shadow: 0 30px 70px rgba(40,65,140,.12);
+  backdrop-filter: blur(22px); padding: 26px; z-index: 10;
+}
+.sync-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.sync-head b { font-size: 16px; color: #343746; }
+.sync-badge { font-size: 11px; font-weight: 700; color: #1A9B67; background: rgba(26,155,103,.10); border: 1px solid rgba(26,155,103,.18); padding: 5px 9px; border-radius: 999px; }
+.sync-list { display: flex; flex-direction: column; gap: 10px; }
+.sync-card { height: 76px; border-radius: 16px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: rgba(255,255,255,.78); border: 1px solid rgba(255,255,255,.96); box-shadow: 0 4px 14px rgba(45,47,62,.04); }
+.sync-card img { width: 38px; height: 38px; border-radius: 11px; object-fit: cover; }
+.sync-card b { display: block; font-size: 13px; color: #3B3E4E; }
+.sync-card small { display: block; font-size: 10px; color: #9A9EAF; margin-top: 3px; }
+.sync-note { margin-top: 18px; font-size: 12px; line-height: 1.7; color: #8D92A4; }
+.sync-ring { position: absolute; right: 322px; top: 250px; width: 120px; height: 120px; border-radius: 50%; border: 2px solid rgba(40,88,248,.45); opacity: 0; z-index: 9; }
+.sync-ring.two { border-color: rgba(96,56,240,.35); }
+
+/* privacy */
+.privacy { background: linear-gradient(135deg, #F6F2FB 0%, #F9F8FD 50%, #EEF2FB 100%); }
+.privacy-grid { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; padding: 130px 160px; opacity: .48; }
+.privacy-grid .ghost { border-radius: 22px; background: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.85); box-shadow: 0 8px 24px rgba(45,47,62,.035); }
+.privacy-card {
+  position: absolute; left: 560px; top: 180px; width: 800px; height: 720px; border-radius: 34px;
+  background: rgba(255,255,255,.82); border: 1px solid rgba(255,255,255,.98); box-shadow: 0 44px 110px rgba(40,65,140,.16);
+  backdrop-filter: blur(26px); padding: 42px;
+}
+.privacy-top { display: flex; align-items: center; justify-content: space-between; }
+.privacy-kicker { font-family: "Geist", sans-serif; font-size: 12px; font-weight: 700; letter-spacing: .18em; color: var(--violet); text-transform: uppercase; }
+.privacy-pill { font-size: 11px; color: #8D92A4; border: 1px solid rgba(45,47,62,.10); border-radius: 999px; padding: 6px 10px; }
+.lock-wrap { width: 150px; height: 150px; margin: 38px auto 0; border-radius: 46px; background: linear-gradient(135deg, rgba(40,88,248,.12), rgba(96,56,240,.12)); position: relative; }
+.lock-shackle { position: absolute; left: 49px; top: 28px; width: 52px; height: 44px; border: 9px solid var(--blue); border-bottom: 0; border-radius: 28px 28px 0 0; }
+.lock-body { position: absolute; left: 37px; top: 62px; width: 76px; height: 58px; border-radius: 14px; background: linear-gradient(135deg, var(--blue), var(--violet)); box-shadow: 0 12px 24px rgba(40,88,248,.24); }
+.lock-key { position: absolute; left: 70px; top: 82px; width: 10px; height: 18px; border-radius: 6px; background: #fff; opacity: .9; }
+.privacy-card h3 { margin: 26px 0 0; text-align: center; font-size: 34px; letter-spacing: -.03em; color: #2D2F3E; }
+.privacy-card .desc { margin: 10px 0 0; text-align: center; font-size: 15px; color: #8D92A4; }
+.password { width: 330px; height: 62px; margin: 28px auto 0; border-radius: 18px; background: rgba(245,246,250,.9); border: 1px solid rgba(45,47,62,.08); display: flex; align-items: center; justify-content: center; gap: 16px; }
+.password span { width: 12px; height: 12px; border-radius: 50%; background: #C9CDD8; }
+.password span.on { background: var(--blue); box-shadow: 0 0 0 5px rgba(40,88,248,.10); }
+.unlock-note { margin-top: 20px; text-align: center; font-size: 13px; color: #1A9B67; opacity: 0; }
+.privacy-links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 24px; opacity: 0; }
+.privacy-links .repo-link { background: rgba(255,255,255,.72); }
+
+/* extension */
+.extension { background: #071225; }
+.ext-bg { position: absolute; inset: 0; background: url("assets/wallpaper-lilies.jpg") center/cover; filter: saturate(.9) brightness(.72); }
+.ext-tint { position: absolute; inset: 0; background: linear-gradient(120deg, rgba(5,14,30,.78), rgba(15,22,55,.42) 52%, rgba(37,20,80,.62)); }
+.browser {
+  position: absolute; left: 210px; top: 110px; width: 1500px; height: 860px; border-radius: 24px;
+  background: rgba(255,255,255,.90); border: 1px solid rgba(255,255,255,.95);
+  box-shadow: 0 50px 130px rgba(0,0,0,.36); overflow: hidden; backdrop-filter: blur(22px);
+  transform-origin: 50% 50%;
+}
+.browser-bar { height: 58px; display: flex; align-items: center; gap: 16px; padding: 0 18px; background: rgba(246,247,251,.92); border-bottom: 1px solid rgba(45,47,62,.07); }
+.browser-dots { display: flex; gap: 7px; }
+.browser-dots span { width: 10px; height: 10px; border-radius: 50%; background: #D7DAE3; }
+.browser-tab { height: 34px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border-radius: 10px 10px 0 0; background: #fff; box-shadow: 0 -1px 0 rgba(45,47,62,.04); font-family: "Geist", sans-serif; font-size: 12px; color: #565B70; }
+.browser-tab img { width: 16px; height: 16px; }
+.address { flex: 1; height: 34px; border-radius: 10px; background: rgba(255,255,255,.86); border: 1px solid rgba(45,47,62,.08); display: flex; align-items: center; padding: 0 14px; font-family: "Geist", sans-serif; font-size: 12px; color: #8A8FA1; }
+.browser-home { position: absolute; inset: 58px 0 0; display: flex; background: linear-gradient(135deg, #F3F5FB, #FAF9FD); }
+.bh-side { width: 190px; flex-shrink: 0; padding: 22px 16px; border-right: 1px solid rgba(45,47,62,.06); background: rgba(255,255,255,.48); }
+.bh-side .word { margin-left: 2px; font-family: "Bricolage", sans-serif; font-size: 21px; font-weight: 800; letter-spacing: -.05em; }
+.bh-side .side-row { height: 32px; font-size: 11px; }
+.bh-main { flex: 1; position: relative; padding: 24px 34px; }
+.bh-clock { font-family: "DSEG7", monospace; font-size: 72px; line-height: .9; text-align: center; color: #27324B; text-shadow: 0 1px 0 rgba(255,255,255,.8), 0 10px 26px rgba(40,88,248,.13); }
+.bh-date { text-align: center; font-size: 11px; color: #9A9EAF; margin-top: 7px; }
+.bh-search { width: 680px; height: 52px; margin: 26px auto 0; border-radius: 26px; background: rgba(255,255,255,.78); border: 1px solid rgba(255,255,255,.96); box-shadow: 0 10px 26px rgba(45,47,62,.07); display: flex; align-items: center; gap: 12px; padding: 0 18px; }
+.bh-search img { width: 26px; height: 26px; }
+.bh-search .ph { font-size: 14px; color: #9A9EAF; }
+.bh-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 24px; }
+.bh-grid .link-card { height: 66px; border-radius: 14px; }
+.bh-grid .link-card .ico { width: 34px; height: 34px; border-radius: 10px; }
+.bh-grid .link-card b { font-size: 12px; }
+.bh-grid .link-card small { font-size: 9px; }
+.search-result {
+  position: absolute; left: 50%; top: 152px; transform: translateX(-50%); width: 680px;
+  background: #fff; border: 1px solid rgba(45,47,62,.08); border-radius: 16px; box-shadow: 0 18px 50px rgba(45,47,62,.14);
+  padding: 12px;
+}
+.search-result .res { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; background: rgba(40,88,248,.05); }
+.search-result img { width: 34px; height: 34px; border-radius: 10px; }
+.search-result b { display: block; font-size: 13px; color: #343746; }
+.search-result small { display: block; font-size: 10px; color: #9A9EAF; margin-top: 3px; }
+.extension-pill { position: absolute; right: 140px; bottom: 56px; display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-radius: 999px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(14px); color: #E8ECFF; font-size: 13px; font-weight: 600; z-index: 20; }
+.extension-pill .chrome-dot { width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(#EA4335 0 33%, #FBBC05 0 66%, #34A853 0 100%); box-shadow: inset 0 0 0 4px rgba(255,255,255,.9); }
+
+/* montage */
+.montage { background: linear-gradient(135deg, #F7F8FC, #EEF1FA 52%, #F6F1FC); }
+.montage-shot { position: absolute; inset: 0; padding: 120px 140px; }
+.montage-shot .num { font-family: "Geist", sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .22em; color: var(--blue); }
+.montage-shot h2 { margin: 22px 0 0; font-size: 72px; line-height: 1.06; letter-spacing: -.06em; color: #282B39; }
+.montage-shot .sub { margin: 18px 0 0; font-size: 23px; color: #777C90; }
+.montage-ui { position: absolute; right: 140px; top: 236px; width: 720px; height: 520px; border-radius: 30px; background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.96); box-shadow: 0 34px 80px rgba(40,65,140,.13); backdrop-filter: blur(22px); padding: 28px; }
+.url-input { height: 66px; border-radius: 18px; background: rgba(246,247,251,.9); border: 1px solid rgba(45,47,62,.08); display: flex; align-items: center; gap: 14px; padding: 0 18px; font-family: "Geist", sans-serif; font-size: 18px; color: #4D5266; }
+.url-input img { width: 38px; height: 38px; border-radius: 11px; margin-left: auto; }
+.url-input .caret { width: 2px; height: 22px; background: var(--blue); }
+.auto-note { margin-top: 22px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #1A9B67; }
+.auto-note .check { width: 20px; height: 20px; border-radius: 50%; background: rgba(26,155,103,.12); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; }
+.todo { display: flex; flex-direction: column; gap: 12px; }
+.todo-row { height: 62px; border-radius: 16px; background: rgba(255,255,255,.72); border: 1px solid rgba(45,47,62,.06); display: flex; align-items: center; gap: 12px; padding: 0 16px; font-size: 14px; color: #4D5266; }
+.todo-row .box { width: 22px; height: 22px; border-radius: 7px; border: 2px solid #C9CDD8; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; }
+.todo-row.done .box { background: var(--blue); border-color: var(--blue); }
+.todo-row.done { color: #9A9EAF; text-decoration: line-through; }
+.widget-row { display: flex; gap: 12px; margin-top: 18px; }
+.widget-mini { flex: 1; height: 112px; border-radius: 18px; background: rgba(255,255,255,.72); border: 1px solid rgba(45,47,62,.06); padding: 16px; }
+.widget-mini small { font-size: 10px; color: #9A9EAF; }
+.widget-mini b { display: block; margin-top: 10px; font-family: "Geist", sans-serif; font-size: 26px; color: #343746; }
+.widget-mini .up { color: #E5484D; }
+.repo-wall { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.repo-wall .repo-tile { height: 118px; border-radius: 18px; background: rgba(255,255,255,.72); border: 1px solid rgba(45,47,62,.06); padding: 14px; }
+.repo-wall .repo-tile .ico { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--blue), var(--violet)); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; }
+.repo-wall .repo-tile b { display: block; margin-top: 10px; font-size: 12px; color: #3B3E4E; }
+.repo-wall .repo-tile small { display: block; margin-top: 3px; font-size: 9px; color: #9A9EAF; }
+.search-demo { height: 66px; border-radius: 33px; background: rgba(255,255,255,.78); border: 1px solid rgba(255,255,255,.96); box-shadow: 0 10px 26px rgba(45,47,62,.07); display: flex; align-items: center; gap: 12px; padding: 0 20px; font-size: 16px; color: #4D5266; }
+.search-demo .result-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 14px; border-radius: 16px; background: rgba(40,88,248,.05); }
+.search-demo .result-row img { width: 38px; height: 38px; border-radius: 11px; }
+.search-demo .result-row b { display: block; font-size: 13px; color: #343746; }
+.search-demo .result-row small { display: block; font-size: 10px; color: #9A9EAF; margin-top: 3px; }
+.progress { position: absolute; left: 140px; right: 140px; bottom: 62px; display: flex; gap: 8px; }
+.progress span { flex: 1; height: 4px; border-radius: 4px; background: rgba(45,47,62,.10); }
+.progress span.on { background: linear-gradient(90deg, var(--blue), var(--violet)); }
+
+/* end */
+.end { background: linear-gradient(135deg, #F8F9FD 0%, #EEF2FB 48%, #F7F1FC 100%); }
+.end-glow { position: absolute; left: 50%; top: 50%; width: 1100px; height: 700px; transform: translate(-50%,-50%); background: radial-gradient(ellipse, rgba(40,88,248,.16), transparent 62%); filter: blur(20px); }
+.end-logo { position: absolute; left: 50%; top: 300px; width: 900px; transform: translateX(-50%); filter: drop-shadow(0 22px 50px rgba(40,88,248,.18)); }
+.end-tag { position: absolute; left: 0; right: 0; top: 620px; text-align: center; font-size: 38px; font-weight: 700; letter-spacing: -.02em; color: #343746; }
+.end-url { position: absolute; left: 50%; top: 728px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 13px 22px; border-radius: 999px; background: #fff; border: 1px solid rgba(45,47,62,.08); box-shadow: 0 14px 34px rgba(40,65,140,.10); font-family: "Geist", sans-serif; font-size: 18px; font-weight: 600; color: var(--blue); }
+.end-url .arrow { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--blue), var(--violet)); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.end-note { position: absolute; left: 0; right: 0; top: 810px; text-align: center; font-size: 13px; color: #9A9EAF; letter-spacing: .08em; }
+
+/* cursor */
+#cursor { position: absolute; left: 0; top: 0; width: 34px; height: 44px; z-index: 90; pointer-events: none; filter: drop-shadow(0 6px 10px rgba(20,24,40,.20)); }
+#cursor svg { width: 100%; height: 100%; display: block; }
+#click-ring { position: absolute; left: 0; top: 0; width: 70px; height: 70px; border-radius: 50%; border: 2px solid rgba(40,88,248,.55); z-index: 89; }
+
+/* transitions */
+.flood { position: absolute; left: 50%; top: 50%; width: 120vmax; height: 120vmax; border-radius: 50%; transform: translate(-50%,-50%) scale(0); z-index: 60; pointer-events: none; }
+.flood.blue { background: linear-gradient(135deg, var(--blue), var(--violet)); }
+.flood.light { background: linear-gradient(135deg, #F7F8FC, #EDF1FA); }
+.flood.dark { background: radial-gradient(circle at 50% 45%, #1A2A55, #071225 70%); }
+.white-flash { position: absolute; inset: 0; background: #fff; z-index: 70; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="film" data-composition-id="film" data-width="1920" data-height="1080">
+
+  <section id="s-hook" class="scene hook">
+    <div class="soft-grid"></div>
+    <div class="grain"></div>
+    <svg class="chaos-line" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+      <path d="M 140 820 C 440 720, 560 420, 900 480 S 1380 260, 1780 360" fill="none" stroke="url(#lineGrad)" stroke-width="1.5" stroke-dasharray="6 10"/>
+      <defs><linearGradient id="lineGrad" x1="0" x2="1"><stop offset="0" stop-color="#2858F8" stop-opacity="0"/><stop offset=".5" stop-color="#2858F8" stop-opacity=".55"/><stop offset="1" stop-color="#6038F0" stop-opacity="0"/></linearGradient></defs>
+    </svg>
+    <div class="hook-copy">
+      <div class="eyebrow" data-om-id="hook-eyebrow">LINKPAD · 01</div>
+      <h1 class="hook-title" data-om-id="hook-title">
+        <span class="mask"><span class="inner" data-om-id="hook-line-1">链接很多，</span></span>
+        <span class="mask"><span class="inner accent" data-om-id="hook-line-2">秩序很少。</span></span>
+      </h1>
+      <p class="hook-sub" data-om-id="hook-sub"><strong>LinkPad</strong> 把常用网站收进一块会自己更新的面板。<br>收藏、分享、同步，一次整理，长期有效。</p>
+    </div>
+    <div id="chaos"></div>
+    <div class="hook-ring" id="hook-ring"></div>
+  </section>
+
+  <section id="s-home" class="scene home">
+    <div class="soft-grid"></div>
+    <div class="grain"></div>
+    <div class="home-panel" id="home-panel" data-om-id="home-panel">
+      <aside class="home-side">
+        <div class="side-brand"><span class="word">linkpad</span></div>
+        <div class="side-nav">
+          <div class="side-row"><span class="ic"></span>发现</div>
+          <div class="side-row active"><span class="ic"></span>首页</div>
+          <div class="side-sub">
+            <span>搜索引擎</span><span>AI 工具</span><span>开发资源</span><span>设计资源</span><span>办公效率</span><span>学习成长</span>
+          </div>
+          <div class="side-row" style="margin-top:10px"><span class="ic"></span>我的仓库</div>
+          <div class="side-row"><span class="ic"></span>我的关注</div>
+          <div class="side-row"><span class="ic"></span>我的收藏</div>
+        </div>
+        <div class="side-bottom"><span class="avatar-dot"></span>登录 / 注册</div>
+      </aside>
+      <main class="home-main">
+        <div class="home-top">
+          <div>
+            <div class="clock" data-om-id="home-clock">15:25:05</div>
+            <div class="clock-sub">10月19日 星期一 九月初九</div>
+          </div>
+          <div class="home-date"><b>下午好</b><br>今天也要高效一点</div>
+        </div>
+        <div class="search" data-om-id="home-search">
+          <span class="chan"><img src="assets/icons/google.png" alt=""></span>
+          <span class="ph">搜索网络内容...</span>
+          <span class="key">⌘ K</span>
+        </div>
+        <div class="home-content">
+          <div class="section-title"><h3>常用链接</h3><span>按访问频率排序</span></div>
+          <div class="card-grid" id="home-cards">
+            <div class="link-card"><img class="ico" src="assets/icons/google.png" alt=""><div class="txt"><b>Google</b><small>全球最大的搜索引擎</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/bing.png" alt=""><div class="txt"><b>Bing</b><small>微软旗下的搜索引擎</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/baidu.png" alt=""><div class="txt"><b>百度</b><small>最大的中文搜索引擎</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/chatgpt.png" alt=""><div class="txt"><b>ChatGPT</b><small>OpenAI 强大的 AI 对话模型</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/claude.png" alt=""><div class="txt"><b>Claude</b><small>Anthropic 的智能 AI 助手</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/gemini.png" alt=""><div class="txt"><b>Gemini</b><small>Google 的多模态 AI 模型</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/github.png" alt=""><div class="txt"><b>GitHub</b><small>全球最大的代码托管平台</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/figma.png" alt=""><div class="txt"><b>Figma</b><small>协作式界面设计工具</small></div></div>
+          </div>
+          <div class="section-title" style="margin-top:22px"><h3>AI 工具</h3><span>常用分类</span></div>
+          <div class="card-grid">
+            <div class="link-card"><img class="ico" src="assets/icons/notion.png" alt=""><div class="txt"><b>Notion</b><small>知识管理与协作工作区</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/youtube.png" alt=""><div class="txt"><b>YouTube</b><small>全球最大的视频分享平台</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/bilibili.png" alt=""><div class="txt"><b>Bilibili</b><small>学习与娱乐都在这</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/midjourney.png" alt=""><div class="txt"><b>Midjourney</b><small>高质量 AI 图像生成工具</small></div></div>
+          </div>
+        </div>
+        <div class="repo-peek" id="repo-peek">
+          <div class="mini-ico">PM</div>
+          <div><b>产品经理常用工具</b><small>公开仓库 · 关注后自动同步</small></div>
+          <div class="follow">关注</div>
+        </div>
+      </main>
+    </div>
+    <div class="caption home-caption"><span class="dot"></span><span class="cap-mask"><span class="cap-inner">常用网站，一屏就位。</span></span></div>
+  </section>
+
+  <section id="s-repo" class="scene repo">
+    <div class="soft-grid"></div>
+    <div class="grain"></div>
+    <div class="repo-panel" id="repo-panel" data-om-id="repo-panel">
+      <div class="repo-head">
+        <div class="repo-big-ico">PM</div>
+        <div>
+          <h2>产品经理常用工具</h2>
+          <p>覆盖产品经理全链路工作场景：原型、竞品分析、行业报告、数据平台、设计灵感与协作工具。</p>
+          <div class="repo-meta"><span>精选链接</span><span>公开仓库</span><span>关注后自动同步</span></div>
+        </div>
+        <div class="follow-btn" id="follow-btn"><span class="heart"></span><span class="follow-text"><span class="not-yet">关注</span><span class="followed">已关注</span></span></div>
+      </div>
+      <div class="repo-tabs"><b>全部链接</b><span>原型设计</span><span>行业报告</span><span>数据分析</span></div>
+      <div class="repo-list" id="repo-list">
+        <div class="repo-link"><img src="assets/icons/figma.png" alt=""><div><b>Figma</b><small>figma.com</small></div></div>
+        <div class="repo-link"><img src="assets/icons/notion.png" alt=""><div><b>Notion</b><small>notion.so</small></div></div>
+        <div class="repo-link"><img src="assets/icons/github.png" alt=""><div><b>GitHub</b><small>github.com</small></div></div>
+        <div class="repo-link"><img src="assets/icons/chatgpt.png" alt=""><div><b>ChatGPT</b><small>chatgpt.com</small></div></div>
+        <div class="repo-link"><img src="assets/icons/claude.png" alt=""><div><b>Claude</b><small>claude.ai</small></div></div>
+        <div class="repo-link"><img src="assets/icons/gemini.png" alt=""><div><b>Gemini</b><small>gemini.google.com</small></div></div>
+        <div class="repo-link"><img src="assets/icons/google.png" alt=""><div><b>Google Trends</b><small>trends.google.com</small></div></div>
+        <div class="repo-link"><img src="assets/icons/bing.png" alt=""><div><b>Bing</b><small>bing.com</small></div></div>
+        <div class="repo-link"><img src="assets/icons/baidu.png" alt=""><div><b>百度指数</b><small>index.baidu.com</small></div></div>
+      </div>
+    </div>
+    <div class="repo-sync" id="repo-sync">
+      <div class="sync-head"><b>我的首页</b><span class="sync-badge">已同步</span></div>
+      <div class="sync-list">
+        <div class="sync-card"><img src="assets/icons/figma.png" alt=""><div><b>Figma</b><small>来自：产品经理常用工具</small></div></div>
+        <div class="sync-card"><img src="assets/icons/notion.png" alt=""><div><b>Notion</b><small>来自：产品经理常用工具</small></div></div>
+        <div class="sync-card"><img src="assets/icons/chatgpt.png" alt=""><div><b>ChatGPT</b><small>来自：产品经理常用工具</small></div></div>
+      </div>
+      <div class="sync-note">关注一次，仓库后续新增、修改、删除的链接都会自动同步到首页。</div>
+    </div>
+    <div class="sync-ring" id="sync-ring"></div>
+    <div class="sync-ring two" id="sync-ring-2"></div>
+    <div class="caption repo-caption"><span class="dot"></span><span class="cap-mask"><span class="cap-inner">关注一次，永远最新。</span></span></div>
+  </section>
+
+  <section id="s-privacy" class="scene privacy">
+    <div class="soft-grid"></div>
+    <div class="grain"></div>
+    <div class="privacy-grid">
+      <div class="ghost"></div><div class="ghost"></div><div class="ghost"></div><div class="ghost"></div>
+      <div class="ghost"></div><div class="ghost"></div><div class="ghost"></div><div class="ghost"></div>
+    </div>
+    <div class="privacy-card" id="privacy-card" data-om-id="privacy-card">
+      <div class="privacy-top"><span class="privacy-kicker">PRIVATE SPACE</span><span class="privacy-pill">仅自己可见</span></div>
+      <div class="lock-wrap" id="lock-wrap">
+        <div class="lock-shackle"></div><div class="lock-body"></div><div class="lock-key"></div>
+      </div>
+      <h3>工作后台</h3>
+      <p class="desc">这个分类已上锁，输入密码才能访问。</p>
+      <div class="password" id="password"><span></span><span></span><span></span><span></span></div>
+      <div class="unlock-note" id="unlock-note">已解锁 · 仅自己可见</div>
+      <div class="privacy-links" id="privacy-links">
+        <div class="repo-link"><img src="assets/icons/notion.png" alt=""><div><b>项目文档</b><small>notion.so</small></div></div>
+        <div class="repo-link"><img src="assets/icons/figma.png" alt=""><div><b>设计稿</b><small>figma.com</small></div></div>
+        <div class="repo-link"><img src="assets/icons/github.png" alt=""><div><b>代码仓库</b><small>github.com</small></div></div>
+      </div>
+    </div>
+    <div class="caption privacy-caption"><span class="dot"></span><span class="cap-mask"><span class="cap-inner">隐私，也能单独上锁。</span></span></div>
+  </section>
+
+  <section id="s-extension" class="scene extension">
+    <div class="ext-bg" id="ext-bg"></div>
+    <div class="ext-tint"></div>
+    <div class="browser" id="browser">
+      <div class="browser-bar">
+        <div class="browser-dots"><span></span><span></span><span></span></div>
+        <div class="browser-tab"><img src="assets/linkpad-icon.png" alt="">LinkPad</div>
+        <div class="address">linkpad.site</div>
+      </div>
+      <div class="browser-home">
+        <aside class="bh-side">
+          <div class="word">linkpad</div>
+          <div class="side-nav" style="margin-top:18px">
+            <div class="side-row"><span class="ic"></span>发现</div>
+            <div class="side-row active"><span class="ic"></span>首页</div>
+            <div class="side-sub"><span>搜索引擎</span><span>AI 工具</span><span>开发资源</span><span>设计资源</span></div>
+          </div>
+        </aside>
+        <main class="bh-main">
+          <div class="bh-clock">15:25:05</div>
+          <div class="bh-date">10月19日 星期一 九月初九</div>
+          <div class="bh-search" id="bh-search">
+            <img src="assets/icons/google.png" alt=""><span class="ph">搜索网络内容...</span>
+          </div>
+          <div class="search-result" id="search-result">
+            <div class="res"><img src="assets/icons/figma.png" alt=""><div><b>Figma</b><small>figma.com · 来自你的收藏</small></div></div>
+          </div>
+          <div class="bh-grid">
+            <div class="link-card"><img class="ico" src="assets/icons/google.png" alt=""><div class="txt"><b>Google</b><small>全球最大的搜索引擎</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/chatgpt.png" alt=""><div class="txt"><b>ChatGPT</b><small>OpenAI 对话模型</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/claude.png" alt=""><div class="txt"><b>Claude</b><small>Anthropic AI 助手</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/github.png" alt=""><div class="txt"><b>GitHub</b><small>代码托管平台</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/figma.png" alt=""><div class="txt"><b>Figma</b><small>协作式设计工具</small></div></div>
+            <div class="link-card"><img class="ico" src="assets/icons/notion.png" alt=""><div class="txt"><b>Notion</b><small>知识管理</small></div></div>
+          </div>
+        </main>
+      </div>
+    </div>
+    <div class="extension-pill" id="extension-pill"><span class="chrome-dot"></span>Chrome / Edge 扩展 · 新标签页自动打开</div>
+    <div class="caption light ext-caption"><span class="dot"></span><span class="cap-mask"><span class="cap-inner">新标签页，就是你的效率中心。</span></span></div>
+  </section>
+
+  <section id="s-montage" class="scene montage">
+    <div class="soft-grid"></div>
+    <div class="grain"></div>
+    <div class="montage-shot" id="m1">
+      <div class="num">01 · ADD</div>
+      <h2>粘贴一条链接，<br>图标自动就位。</h2>
+      <p class="sub">不用上传、不用裁图，收藏只需要一个 URL。</p>
+      <div class="montage-ui">
+        <div class="url-input"><span class="caret"></span><span>https://figma.com</span><img src="assets/icons/figma.png" alt=""></div>
+        <div class="auto-note"><span class="check">✓</span>已识别 Figma 图标</div>
+      </div>
+    </div>
+    <div class="montage-shot" id="m2">
+      <div class="num">02 · WIDGETS</div>
+      <h2>待办、股票、黄金，<br>顺手就能用。</h2>
+      <p class="sub">导航页不只是放链接，也是你的个人信息面板。</p>
+      <div class="montage-ui">
+        <div class="todo">
+          <div class="todo-row done"><span class="box">✓</span>整理本周产品需求</div>
+          <div class="todo-row done"><span class="box">✓</span>同步设计稿给开发</div>
+          <div class="todo-row"><span class="box"></span>写周报</div>
+        </div>
+        <div class="widget-row">
+          <div class="widget-mini"><small>上证指数</small><b class="up">+1.28%</b></div>
+          <div class="widget-mini"><small>黄金 / 克</small><b>¥ 612.40</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="montage-shot" id="m3">
+      <div class="num">03 · DISCOVER</div>
+      <h2>发现好仓库，<br>关注即同步。</h2>
+      <p class="sub">设计、开发、产品、效率，别人整理好的，直接变成你的。</p>
+      <div class="montage-ui">
+        <div class="repo-wall">
+          <div class="repo-tile"><div class="ico">设</div><b>设计驿站</b><small>设计资源</small></div>
+          <div class="repo-tile"><div class="ico">SEO</div><b>SEO</b><small>SEO 工具</small></div>
+          <div class="repo-tile"><div class="ico">GH</div><b>宝藏 GitHub</b><small>开源项目</small></div>
+          <div class="repo-tile"><div class="ico">PM</div><b>产品经理工具</b><small>产品工具</small></div>
+          <div class="repo-tile"><div class="ico">实</div><b>实用工具</b><small>实用工具</small></div>
+          <div class="repo-tile"><div class="ico">独</div><b>独立开发工具</b><small>独立开发</small></div>
+        </div>
+      </div>
+    </div>
+    <div class="montage-shot" id="m4">
+      <div class="num">04 · SEARCH</div>
+      <h2>收藏再多，<br>一搜就到。</h2>
+      <p class="sub">网络搜索和本地收藏，在同一个输入框里。</p>
+      <div class="montage-ui">
+        <div class="search-demo"><span>🔎</span><span>figma</span></div>
+        <div class="search-demo" style="margin-top:18px;height:auto;padding:0;background:none;border:none;box-shadow:none">
+          <div class="result-row"><img src="assets/icons/figma.png" alt=""><div><b>Figma</b><small>figma.com · 你的收藏</small></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="progress" id="progress"><span class="on"></span><span></span><span></span><span></span></div>
+  </section>
+
+  <section id="s-end" class="scene end">
+    <div class="soft-grid"></div>
+    <div class="grain"></div>
+    <div class="end-glow"></div>
+    <img class="end-logo" src="assets/linkpad-logo.png" alt="LinkPad">
+    <div class="end-tag" data-var-text="tagline" data-om-id="end-tag">收藏好链接，分享好品味</div>
+    <div class="end-url" data-om-id="end-url"><span data-var-text="url">linkpad.site</span><span class="arrow">↗</span></div>
+    <div class="end-note">开源 · 免费 · 新标签页效率中心</div>
+  </section>
+
+  <div id="hero-mark"><img src="assets/linkpad-icon.png" alt=""></div>
+  <div class="hook-ring" id="mark-ring"></div>
+
+  <div id="cursor"><svg viewBox="0 0 34 44"><path d="M3 2 L29 22 L17 24 L12 40 Z" fill="#fff" stroke="#2D2F3E" stroke-width="2.2" stroke-linejoin="round"/></svg></div>
+  <div id="click-ring"></div>
+
+  <div class="flood blue" id="flood-blue"></div>
+  <div class="flood light" id="flood-light"></div>
+  <div class="flood dark" id="flood-dark"></div>
+  <div class="white-flash" id="white-flash"></div>
+
+  <script type="text/vnd.abc" id="om-score">
+X:1
+T:LinkPad · A place for every link
+M:4/4
+L:1/8
+Q:1/4=120
+K:D
+V:PNO inst=piano
+!mark:hook! !mp! [D,F#,A]8 | [B,D,F#]8 | !mark:home! !mf! [G,B,D]8 | [A,C#,E]8 |
+!mark:repo! !f! [D,F#,A]8 | [B,D,F#]8 | !mark:privacy! !mp! [G,B,D]8 | [A,C#,E]8 |
+!mark:extension! !ff! [D,F#,A]8 | [B,D,F#]8 | [G,B,D]8 | !mark:montage! !f! [A,C#,E]8 |
+[G,B,D]8 | !mark:logo! !ff! [D,F#,A]8 | !fermata![D,F#,A]8 |
+V:STR inst=strings
+!mp! [D,F#,A]8 | [B,D,F#]8 | [G,B,D]8 | [A,C#,E]8 |
+!mf! [D,F#,A]8 | [B,D,F#]8 | [G,B,D]8 | [A,C#,E]8 |
+!f! [D,F#,A]8 | [B,D,F#]8 | [G,B,D]8 | [A,C#,E]8 |
+[G,B,D]8 | !ff! [D,F#,A]8 | !fermata![D,F#,A]8 |
+V:PLK inst=synpluck gain=0.55
+z8 | z8 | D/A/d/A/ F#/A/d/A/ D/A/d/A/ F#/A/c#/A/ | E/B/e/B/ G/B/e/B/ E/B/e/B/ G/B/d/B/ |
+D/A/d/A/ F#/A/d/A/ D/A/d/A/ F#/A/c#/A/ | B/F#/b/F#/ D/F#/b/F#/ B/F#/b/F#/ D/F#/a/F#/ | G/D/g/D/ B/D/g/D/ G/D/g/D/ B/D/f#/D/ | A/E/a/E/ C#/E/a/E/ A/E/a/E/ C#/E/g/E/ |
+D/A/d/A/ F#/A/d/A/ D/A/d/A/ F#/A/c#/A/ | B/F#/b/F#/ D/F#/b/F#/ B/F#/b/F#/ D/F#/a/F#/ | G/D/g/D/ B/D/g/D/ G/D/g/D/ B/D/f#/D/ | A/E/a/E/ C#/E/a/E/ A/E/a/E/ C#/E/g/E/ |
+G/D/g/D/ B/D/g/D/ G/D/g/D/ B/D/f#/D/ | D/A/d/A/ F#/A/d/A/ D/A/d/A/ F#/A/d/A/ | z8 |
+V:BAS inst=synbass gain=0.8
+!mp! D,,D,,D,,D,, D,,D,,D,,D,, | B,,,B,,,B,,,B,,, B,,,B,,,B,,,B,,, | G,,,G,,,G,,,G,,, G,,,G,,,G,,,G,,, | A,,,A,,,A,,,A,,, A,,,A,,,A,,,A,,, |
+!mf! D,,D,,D,,D,, D,,D,,D,,D,, | B,,,B,,,B,,,B,,, B,,,B,,,B,,,B,,, | G,,,G,,,G,,,G,,, G,,,G,,,G,,,G,,, | A,,,A,,,A,,,A,,, A,,,A,,,A,,,A,,, |
+!ff! D,,D,,D,,D,, D,,D,,D,,D,, | B,,,B,,,B,,,B,,, B,,,B,,,B,,,B,,, | G,,,G,,,G,,,G,,, G,,,G,,,G,,,G,,, | A,,,A,,,A,,,A,,, A,,,A,,,A,,,A,,, |
+G,,,G,,,G,,,G,,, G,,,G,,,G,,,G,,, | !ff! D,,D,,D,,D,, D,,D,,D,,D,, | !fermata!D,,8 |
+V:DR inst=drums kit=pop
+!mf! C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 |
+!mf! C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | !rise(! C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 !rise)! |
+!mark:extension! !hit! !ff! C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 | !mark:montage! !ff! C,,2 ^F,,2 [D,,^F,,]2 ^F,,2 |
+C,,/C,,/C,,/C,,/ D,,/D,,/D,,/D,,/ ^F,,/^F,,/^F,,/^F,,/ [D,,^F,,]/[D,,^F,,]/^A,,/^A,,/ | !mark:logo! !ff! [C,,^C,]8 | !fermata![C,,^C,]8 |
+  </script>
+</div>
+
+<script>
+const V = OM.vars();
+const B = (n) => OM.beat(n);
+const tl = gsap.timeline({ paused: true, defaults: { ease: 'power3.out' } });
+OM.music({ bpm: 120, drop: 'extension', ending: 'ring' });
+
+const chips = [
+  { name: 'Google', url: 'google.com', icon: 'google.png', x: 1110, y: 230, r: -7 },
+  { name: 'ChatGPT', url: 'chatgpt.com', icon: 'chatgpt.png', x: 1370, y: 210, r: 5 },
+  { name: 'Figma', url: 'figma.com', icon: 'figma.png', x: 1620, y: 250, r: -4 },
+  { name: 'Notion', url: 'notion.so', icon: 'notion.png', x: 1080, y: 390, r: 6 },
+  { name: 'Claude', url: 'claude.ai', icon: 'claude.png', x: 1350, y: 380, r: -6 },
+  { name: 'GitHub', url: 'github.com', icon: 'github.png', x: 1600, y: 420, r: 7 },
+  { name: 'Bing', url: 'bing.com', icon: 'bing.png', x: 1110, y: 550, r: -5 },
+  { name: 'Gemini', url: 'gemini.google.com', icon: 'gemini.png', x: 1380, y: 540, r: 4 },
+  { name: '百度', url: 'baidu.com', icon: 'baidu.png', x: 1640, y: 580, r: -8 },
+  { name: 'YouTube', url: 'youtube.com', icon: 'youtube.png', x: 1090, y: 710, r: 6 },
+  { name: 'Bilibili', url: 'bilibili.com', icon: 'bilibili.png', x: 1370, y: 700, r: -5 },
+  { name: '已失效', url: 'old-link.xyz', icon: 'midjourney.png', x: 1620, y: 740, r: 4, hot: true },
+];
+
+const chaos = document.getElementById('chaos');
+chips.forEach((c, i) => {
+  const el = document.createElement('div');
+  el.className = 'chaos-chip' + (c.hot ? ' hot' : '');
+  el.dataset.i = i;
+  el.innerHTML = '<img src="assets/icons/' + c.icon + '" alt=""><span>' + c.name + '</span><span class="url">' + c.url + '</span>';
+  chaos.appendChild(el);
+});
+
+const chipEls = gsap.utils.toArray('.chaos-chip');
+const gridX = [1110, 1370, 1630];
+const gridY = [260, 420, 580, 740];
+
+gsap.set('.scene', { autoAlpha: 0 });
+gsap.set('#s-hook', { autoAlpha: 1 });
+gsap.set('#hero-mark', { x: 900, y: 420, scale: 1.28, autoAlpha: 0 });
+gsap.set('#mark-ring', { x: 900, y: 480, scale: .2, autoAlpha: 0 });
+gsap.set('#hook-ring', { x: 900, y: 480, scale: .2, autoAlpha: 0 });
+gsap.set('.hook-copy .inner', { yPercent: 115 });
+gsap.set('.hook-sub', { autoAlpha: 0, y: 18 });
+gsap.set('.chaos-chip', { x: 900, y: 480, scale: .2, autoAlpha: 0, rotation: 0 });
+gsap.set('#home-panel', { autoAlpha: 0, y: 36, scale: .96 });
+gsap.set('#home-cards .link-card', { autoAlpha: 0, y: 18, scale: .96 });
+gsap.set('#repo-peek', { autoAlpha: 0, x: 40 });
+gsap.set('.home-caption .cap-inner', { yPercent: 120 });
+gsap.set('#repo-panel', { autoAlpha: 0, y: 30, scale: .97 });
+gsap.set('#repo-list .repo-link', { autoAlpha: 0, y: 16 });
+gsap.set('#repo-sync', { autoAlpha: 0, x: 30, scale: .97 });
+gsap.set('#repo-sync .sync-card', { autoAlpha: 0, x: 24 });
+gsap.set('.repo-caption .cap-inner', { yPercent: 120 });
+gsap.set('.follow-text .followed', { autoAlpha: 0 });
+gsap.set('#privacy-card', { autoAlpha: 0, y: 34, scale: .96 });
+gsap.set('#privacy-grid .ghost', { autoAlpha: 0, scale: .94 });
+gsap.set('#password span', { scale: 0 });
+gsap.set('#privacy-links', { autoAlpha: 0, y: 16 });
+gsap.set('.privacy-caption .cap-inner', { yPercent: 120 });
+gsap.set('#browser', { autoAlpha: 0, scale: .9, y: 40 });
+gsap.set('.ext-caption .cap-inner', { yPercent: 120 });
+gsap.set('#search-result', { autoAlpha: 0, y: -8, scale: .98 });
+gsap.set('#extension-pill', { autoAlpha: 0, y: 16 });
+gsap.set('.montage-shot', { autoAlpha: 0 });
+gsap.set('#progress span', { scaleX: .25, transformOrigin: '0 50%' });
+gsap.set('#s-end', { autoAlpha: 0 });
+gsap.set('.end-logo', { autoAlpha: 0, y: 24, scale: .96 });
+gsap.set('.end-tag', { autoAlpha: 0, y: 18 });
+gsap.set('.end-url', { autoAlpha: 0, y: 18 });
+gsap.set('.end-note', { autoAlpha: 0, y: 12 });
+gsap.set('#cursor', { x: 900, y: 500, autoAlpha: 0 });
+gsap.set('#click-ring', { x: 900, y: 500, scale: .2, autoAlpha: 0 });
+gsap.set('#flood-blue, #flood-light, #flood-dark', { scale: 0, autoAlpha: 0 });
+gsap.set('#white-flash', { autoAlpha: 0 });
+
+// 01 · Hook
+tl.addLabel('scene:hook', 0)
+  .to('#hero-mark', { autoAlpha: 1, duration: .18 }, 0)
+  .fromTo('#hero-mark', { y: -220, scale: 1.7 }, { y: 420, scale: 1.28, duration: .58, ease: 'bounce.out', immediateRender: false }, 0)
+  .to('#hero-mark', { scale: 1.34, duration: .22, ease: 'power2.out' }, .58)
+  .to('#hero-mark', { scale: 1.28, duration: .28, ease: 'power2.inOut' }, .80)
+  .to('#hook-ring', { autoAlpha: .8, scale: 1.6, duration: .35, ease: 'expo.out' }, .62)
+  .to('#hook-ring', { autoAlpha: 0, scale: 2.4, duration: .7, ease: 'power2.out' }, .95)
+  .to(chipEls, { autoAlpha: 1, scale: 1, x: (i) => chips[i].x, y: (i) => chips[i].y, rotation: (i) => chips[i].r, duration: .75, stagger: .035, ease: 'expo.out' }, .74)
+  .to('.hook-copy .inner', { yPercent: 0, duration: .8, stagger: .1, ease: 'expo.out' }, .92)
+  .to('.hook-sub', { autoAlpha: 1, y: 0, duration: .6 }, 1.38)
+  .to(chipEls, { x: (i) => gridX[i % 3], y: (i) => gridY[Math.floor(i / 3)], rotation: 0, duration: .85, stagger: .035, ease: 'power3.inOut' }, 2.72)
+  .to('#hero-mark', { x: 970, y: 300, scale: .9, duration: .75, ease: 'power3.inOut' }, 2.72)
+  .to('#flood-blue', { autoAlpha: 1, scale: 1, duration: .55, ease: 'power3.inOut' }, 3.52)
+  .to('#flood-blue', { autoAlpha: 0, duration: .55, ease: 'power2.inOut' }, 3.95)
+  .to('#hero-mark', { x: 66, y: 64, scale: .5, duration: .55, ease: 'power3.inOut' }, 3.58)
+  .to('#s-hook', { autoAlpha: 0, duration: .35 }, 3.85);
+
+// 02 · Home
+tl.addLabel('scene:home', 4)
+  .to('#s-home', { autoAlpha: 1, duration: .01 }, 4)
+  .fromTo('#home-panel', { autoAlpha: 0, y: 36, scale: .96 }, { autoAlpha: 1, y: 0, scale: 1, duration: .7, ease: 'expo.out', immediateRender: false }, 4)
+  .to('#home-cards .link-card', { autoAlpha: 1, y: 0, scale: 1, duration: .5, stagger: .035, ease: 'expo.out' }, 4.35)
+  .to('.home-caption .cap-inner', { yPercent: 0, duration: .55, ease: 'expo.out' }, 4.72)
+  .fromTo('.clock', { letterSpacing: '.08em', opacity: .4 }, { letterSpacing: '-.03em', opacity: 1, duration: .9, ease: 'expo.out', immediateRender: false }, 4.2)
+  .to('#repo-peek', { autoAlpha: 1, x: 0, duration: .55, ease: 'expo.out' }, 6.82)
+  .to('#hero-mark', { x: 66, y: 64, scale: .5, duration: .5, ease: 'power3.inOut' }, 7.2)
+  .to('#s-home', { autoAlpha: 0, duration: .25 }, 7.7)
+  .to('#flood-blue', { autoAlpha: .9, scale: 1, duration: .3, ease: 'power2.in' }, 7.55)
+  .to('#flood-blue', { autoAlpha: 0, duration: .45 }, 7.85);
+
+// 03 · Repo + sync
+tl.addLabel('scene:repo', 8)
+  .to('#s-repo', { autoAlpha: 1, duration: .01 }, 8)
+  .fromTo('#repo-panel', { autoAlpha: 0, y: 30, scale: .97 }, { autoAlpha: 1, y: 0, scale: 1, duration: .65, ease: 'expo.out', immediateRender: false }, 8)
+  .to('#repo-list .repo-link', { autoAlpha: 1, y: 0, duration: .42, stagger: .025, ease: 'expo.out' }, 8.3)
+  .to('.repo-caption .cap-inner', { yPercent: 0, duration: .5, ease: 'expo.out' }, 8.5)
+  .to('#cursor', { autoAlpha: 1, x: 1058, y: 178, duration: .55, ease: 'power3.out' }, 8.72)
+  .to('#cursor', { x: 1052, y: 181, duration: .18, ease: 'power2.inOut' }, 9.25)
+  .to('#click-ring', { autoAlpha: 1, scale: 1, x: 1050, y: 170, duration: .3, ease: 'expo.out' }, 9.34)
+  .to('#click-ring', { autoAlpha: 0, scale: 2.2, duration: .45, ease: 'power2.out' }, 9.48)
+  .to('#follow-btn', { scale: .94, duration: .1, ease: 'power2.in' }, 9.34)
+  .to('#follow-btn', { scale: 1, duration: .28, ease: 'back.out(1.8)' }, 9.44)
+  .to('.follow-text .not-yet', { autoAlpha: 0, duration: .08 }, 9.45)
+  .to('.follow-text .followed', { autoAlpha: 1, duration: .08 }, 9.45)
+  .to('#follow-btn', { background: 'linear-gradient(135deg,#EAF7F0,#EAF7F0)', color: '#1A9B67', boxShadow: '0 10px 26px rgba(26,155,103,.12)', duration: .3 }, 9.45)
+  .to('#repo-sync', { autoAlpha: 1, x: 0, scale: 1, duration: .6, ease: 'expo.out' }, 9.85)
+  .to('#repo-sync .sync-card', { autoAlpha: 1, x: 0, duration: .45, stagger: .09, ease: 'expo.out' }, 10.12)
+  .to('#sync-ring', { autoAlpha: .9, scale: 1.4, duration: .3, ease: 'expo.out' }, 10.18)
+  .to('#sync-ring', { autoAlpha: 0, scale: 2.8, duration: .7, ease: 'power2.out' }, 10.35)
+  .to('#sync-ring-2', { autoAlpha: .6, scale: 1.2, duration: .3, ease: 'expo.out' }, 10.42)
+  .to('#sync-ring-2', { autoAlpha: 0, scale: 2.4, duration: .7, ease: 'power2.out' }, 10.58)
+  .to('#cursor', { autoAlpha: 0, duration: .2 }, 11.0)
+  .to('#hero-mark', { x: 66, y: 64, scale: .5, duration: .55, ease: 'power3.inOut' }, 11.65)
+  .to('#s-repo', { autoAlpha: 0, duration: .25 }, 11.78)
+  .to('#flood-light', { autoAlpha: 1, scale: 1, duration: .35, ease: 'power2.in' }, 11.72)
+  .to('#flood-light', { autoAlpha: 0, duration: .45 }, 12.02);
+
+// 04 · Privacy
+tl.addLabel('scene:privacy', 12)
+  .to('#s-privacy', { autoAlpha: 1, duration: .01 }, 12)
+  .fromTo('#privacy-card', { autoAlpha: 0, y: 34, scale: .96 }, { autoAlpha: 1, y: 0, scale: 1, duration: .62, ease: 'expo.out', immediateRender: false }, 12)
+  .to('#privacy-grid .ghost', { autoAlpha: 1, scale: 1, duration: .5, stagger: .03, ease: 'power2.out' }, 12.12)
+  .to('.privacy-caption .cap-inner', { yPercent: 0, duration: .5, ease: 'expo.out' }, 12.55)
+  .to('#cursor', { autoAlpha: 1, x: 850, y: 470, duration: .55, ease: 'power3.out' }, 12.72)
+  .to('#password span', { scale: 1, duration: .18, stagger: .22, ease: 'back.out(2)' }, 12.95)
+  .to('#cursor', { x: 880, y: 476, duration: .1 }, 13.55)
+  .to('#click-ring', { autoAlpha: 1, scale: 1, x: 880, y: 476, duration: .25, ease: 'expo.out' }, 13.64)
+  .to('#click-ring', { autoAlpha: 0, scale: 2.2, duration: .4 }, 13.76)
+  .to('#lock-shackle', { y: -18, rotation: -12, transformOrigin: '50% 100%', duration: .35, ease: 'back.out(2)' }, 13.64)
+  .to('#lock-body', { background: 'linear-gradient(135deg,#1A9B67,#2BC48A)', duration: .3 }, 13.64)
+  .to('#privacy-card h3', { color: '#1A9B67', duration: .3 }, 13.68)
+  .to('#unlock-note', { autoAlpha: 1, duration: .3 }, 13.75)
+  .to('#privacy-links', { autoAlpha: 1, y: 0, duration: .5, ease: 'expo.out' }, 13.9)
+  .to('#cursor', { autoAlpha: 0, duration: .2 }, 14.5)
+  .to('#s-privacy', { autoAlpha: .82, duration: .5 }, 15.2)
+  .to('#privacy-card', { scale: 1.02, duration: .5, ease: 'power2.inOut' }, 15.2)
+  .to('#s-privacy', { autoAlpha: 0, duration: .25 }, 15.72)
+  .to('#flood-dark', { autoAlpha: 1, scale: 1, duration: .45, ease: 'power3.in' }, 15.5)
+  .to('#flood-dark', { autoAlpha: 0, duration: .65 }, 16.0)
+  .to('#white-flash', { autoAlpha: .9, duration: .06 }, 16.0)
+  .to('#white-flash', { autoAlpha: 0, duration: .3 }, 16.08)
+  .to('#hero-mark', { x: 66, y: 64, scale: .5, duration: .55, ease: 'power3.inOut' }, 15.9);
+
+// 05 · Extension
+tl.addLabel('scene:extension', 16)
+  .to('#s-extension', { autoAlpha: 1, duration: .01 }, 16)
+  .fromTo('#browser', { autoAlpha: 0, scale: .9, y: 40 }, { autoAlpha: 1, scale: 1, y: 0, duration: .8, ease: 'expo.out', immediateRender: false }, 16.05)
+  .fromTo('#ext-bg', { scale: 1.12 }, { scale: 1.04, duration: 5.4, ease: 'none', immediateRender: false }, 16)
+  .to('.ext-caption .cap-inner', { yPercent: 0, duration: .55, ease: 'expo.out' }, 16.7)
+  .to('#cursor', { autoAlpha: 1, x: 930, y: 348, duration: .6, ease: 'power3.out' }, 18.7)
+  .to('#click-ring', { autoAlpha: 1, scale: 1, x: 930, y: 348, duration: .25, ease: 'expo.out' }, 19.0)
+  .to('#click-ring', { autoAlpha: 0, scale: 2.2, duration: .4 }, 19.12)
+  .to('#search-result', { autoAlpha: 1, y: 0, scale: 1, duration: .4, ease: 'expo.out' }, 19.45)
+  .to('#cursor', { autoAlpha: 0, duration: .2 }, 20.0)
+  .to('#browser', { scale: 1.025, duration: 1.6, ease: 'power2.inOut' }, 19.2)
+  .to('#extension-pill', { autoAlpha: 1, y: 0, duration: .45, ease: 'expo.out' }, 20.8)
+  .to('#s-extension', { autoAlpha: 0, duration: .25 }, 21.72)
+  .to('#flood-light', { autoAlpha: 1, scale: 1, duration: .3, ease: 'power2.in' }, 21.62)
+  .to('#flood-light', { autoAlpha: 0, duration: .45 }, 21.92)
+  .to('#hero-mark', { autoAlpha: 0, duration: .2 }, 21.7);
+
+// 06 · Montage
+tl.addLabel('scene:montage', 22)
+  .to('#s-montage', { autoAlpha: 1, duration: .01 }, 22)
+  .to('#m1', { autoAlpha: 1, duration: .01 }, 22)
+  .fromTo('#m1', { scale: 1.06 }, { scale: 1, duration: .55, ease: 'power3.out', immediateRender: false }, 22)
+  .to('#progress span:nth-child(1)', { scaleX: 1, duration: .2, ease: 'power2.out' }, 22)
+  .to('#m1', { autoAlpha: 0, duration: .08 }, 23)
+  .to('#m2', { autoAlpha: 1, duration: .01 }, 23)
+  .fromTo('#m2', { scale: 1.06 }, { scale: 1, duration: .55, ease: 'power3.out', immediateRender: false }, 23)
+  .to('#progress span:nth-child(2)', { scaleX: 1, duration: .2 }, 23)
+  .to('#m2', { autoAlpha: 0, duration: .08 }, 24)
+  .to('#m3', { autoAlpha: 1, duration: .01 }, 24)
+  .fromTo('#m3', { scale: 1.06 }, { scale: 1, duration: .55, ease: 'power3.out', immediateRender: false }, 24)
+  .to('#progress span:nth-child(3)', { scaleX: 1, duration: .2 }, 24)
+  .to('#m3', { autoAlpha: 0, duration: .08 }, 25)
+  .to('#m4', { autoAlpha: 1, duration: .01 }, 25)
+  .fromTo('#m4', { scale: 1.06 }, { scale: 1, duration: .55, ease: 'power3.out', immediateRender: false }, 25)
+  .to('#progress span:nth-child(4)', { scaleX: 1, duration: .2 }, 25)
+  .to('#s-montage', { autoAlpha: 0, duration: .2 }, 25.72)
+  .to('#flood-light', { autoAlpha: 1, scale: 1, duration: .3, ease: 'power2.in' }, 25.62)
+  .to('#flood-light', { autoAlpha: 0, duration: .5 }, 25.92);
+
+// 07 · End card
+tl.addLabel('scene:logo', 26)
+  .to('#s-end', { autoAlpha: 1, duration: .01 }, 26)
+  .fromTo('.end-logo', { autoAlpha: 0, y: 24, scale: .96 }, { autoAlpha: 1, y: 0, scale: 1, duration: .8, ease: 'expo.out', immediateRender: false }, 26.05)
+  .fromTo('.end-tag', { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: .6, ease: 'expo.out', immediateRender: false }, 26.35)
+  .fromTo('.end-url', { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: .55, ease: 'expo.out', immediateRender: false }, 26.62)
+  .fromTo('.end-note', { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: .5, ease: 'expo.out', immediateRender: false }, 26.9)
+  .to({}, { duration: V.endHold }, 26);
+
+OM.sfx('whoosh', 0.0, { gain: .35 });
+OM.sfx('thud', 0.52, { gain: .55 });
+OM.sfx('pop', 0.72, { gain: .22 });
+OM.sfx('impact', 0.96, { gain: .48 });
+OM.sfx('hit', 2.72, { gain: .30 });
+OM.sfx('whoosh', 3.55, { gain: .40 });
+OM.sfx('thud', 4.02, { gain: .55 });
+OM.sfx('pop', 4.40, { gain: .20, note: 1 });
+OM.sfx('pop', 4.52, { gain: .18, note: 2 });
+OM.sfx('pop', 4.64, { gain: .16, note: 3 });
+OM.sfx('tick', 5.1, { gain: .18 });
+OM.sfx('pop', 6.84, { gain: .30 });
+OM.sfx('whoosh', 7.58, { gain: .32 });
+OM.sfx('thud', 8.02, { gain: .50 });
+OM.sfx('click', 9.34, { gain: .32 });
+OM.sfx('ding', 9.48, { gain: .35, note: 5 });
+OM.sfx('sparkle', 10.18, { gain: .30 });
+OM.sfx('tick', 10.45, { gain: .20 });
+OM.sfx('whoosh', 11.72, { gain: .34 });
+OM.sfx('thud', 12.02, { gain: .45 });
+OM.sfx('type', 12.95, { gain: .22, dur: .8 });
+OM.sfx('click', 13.64, { gain: .30 });
+OM.sfx('ding', 13.70, { gain: .32, note: 7 });
+OM.sfx('reverse', 16.0, { gain: .45, dur: 1.0 });
+OM.sfx('impact', 16.0, { gain: .62 });
+OM.sfx('subdrop', 16.0, { gain: .45, dur: 1.0 });
+OM.sfx('whoosh', 16.1, { gain: .35 });
+OM.sfx('thud', 16.85, { gain: .40 });
+OM.sfx('click', 19.0, { gain: .30 });
+OM.sfx('type', 19.15, { gain: .18, dur: .35 });
+OM.sfx('pop', 19.48, { gain: .28 });
+OM.sfx('whoosh', 21.62, { gain: .30 });
+OM.sfx('hit', 22.0, { gain: .45 });
+OM.sfx('hit', 23.0, { gain: .40 });
+OM.sfx('hit', 24.0, { gain: .42 });
+OM.sfx('hit', 25.0, { gain: .46 });
+OM.sfx('ding', 25.2, { gain: .25, note: 5 });
+OM.sfx('whoosh', 25.62, { gain: .28 });
+OM.sfx('impact', 26.0, { gain: .45 });
+OM.sfx('chime', 26.55, { gain: .40 });
+OM.sfx('sparkle', 27.4, { gain: .18 });
+
+window.__timelines['film'] = tl;
+</script>
+</body>
+</html>
