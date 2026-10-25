@@ -754,7 +754,7 @@ export default function RepoPage() {
             <div className="space-y-3">
               <input value={linkName} onChange={e => setLinkName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               <div className="relative">
-                <input value={linkUrl} onChange={e => {
+                <input value={linkUrl} disabled={!!linkPdf} onChange={e => {
                   setLinkUrl(e.target.value)
                   scheduleLinkDesc(e.target.value)
                   if (!linkName) { const n = guessNameFromUrl(e.target.value); if (n) setLinkName(n) }
@@ -789,17 +789,23 @@ export default function RepoPage() {
                       }
                     }).finally(() => setFaviconLoading(false))
                   }
-                }} placeholder={t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                }} placeholder={linkPdf ? t('已选择 PDF') : t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 disabled:cursor-not-allowed disabled:opacity-70" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('上传 PDF（选填）')}</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('链接类型：网址或上传 PDF')}</label>
                 <div className="flex items-center gap-2">
                   <input ref={linkPdfRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleLinkPdfSelect} />
-                  <button type="button" onClick={() => linkPdfRef.current?.click()} disabled={linkPdfUploading}
+                  <button type="button" onClick={() => linkPdfRef.current?.click()} disabled={linkPdfUploading || !!linkPdf}
                     className="px-3 py-1.5 rounded-xl bg-white/60 border border-white/80 text-xs text-gray-600 hover:bg-white/90 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-1 transition-all">
                     {linkPdfUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />} {linkPdfUploading ? t('上传中...') : t('选择 PDF')}
                   </button>
-                  {linkPdf && <span className="text-xs text-gray-500 truncate max-w-[220px]" title={linkPdf.name}>{linkPdf.name}</span>}
+                  {linkPdf && (
+                    <>
+                      <span className="text-xs text-gray-500 truncate max-w-[180px]" title={linkPdf.name}>{linkPdf.name}</span>
+                      <button type="button" onClick={() => { setLinkPdf(null); setLinkUrl(''); if (linkPdfRef.current) linkPdfRef.current.value = '' }}
+                        className="text-xs text-red-400 hover:text-red-600 shrink-0">{t('清除')}</button>
+                    </>
+                  )}
                 </div>
               </div>
               {addLinkDups.length > 0 && (

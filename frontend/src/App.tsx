@@ -2293,7 +2293,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
             <h3 className="font-bold text-gray-800 mb-4">{t('添加链接')}</h3>
             <div className="space-y-3">
               <input value={addToolName} onChange={e => setAddToolName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={addToolUrl} onChange={e => {
+              <input value={addToolUrl} disabled={!!addToolPdf} onChange={e => {
                   setAddToolUrl(e.target.value)
                   const u = e.target.value
                   scheduleAddToolDesc(u)
@@ -2327,7 +2327,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                       }
                     })
                   }
-                }} placeholder={t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                }} placeholder={addToolPdf ? t('已选择 PDF') : t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 disabled:cursor-not-allowed disabled:opacity-70" />
               {addToolDups.length > 0 && (
                 <div className="rounded-2xl bg-amber-50/80 border border-amber-200/60 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 text-amber-600 font-medium text-xs mb-1.5">
@@ -2356,14 +2356,20 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 onFetch={() => fetchAddToolDesc(addToolUrl, true)}
               />
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('上传 PDF（选填）')}</label>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('链接类型：网址或上传 PDF')}</label>
                 <div className="flex items-center gap-2">
                   <input ref={addToolPdfRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleAddToolPdfSelect} />
-                  <button type="button" onClick={() => addToolPdfRef.current?.click()} disabled={addToolPdfUploading}
+                  <button type="button" onClick={() => addToolPdfRef.current?.click()} disabled={addToolPdfUploading || !!addToolPdf}
                     className="inline-flex items-center gap-1 rounded-xl border border-white/80 bg-white/60 px-3 py-1.5 text-xs text-gray-600 transition-all hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60">
                     {addToolPdfUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />} {addToolPdfUploading ? t('上传中...') : t('选择 PDF')}
                   </button>
-                  {addToolPdf && <span className="max-w-[220px] truncate text-xs text-gray-500" title={addToolPdf.name}>{addToolPdf.name}</span>}
+                  {addToolPdf && (
+                    <>
+                      <span className="max-w-[180px] truncate text-xs text-gray-500" title={addToolPdf.name}>{addToolPdf.name}</span>
+                      <button type="button" onClick={() => { setAddToolPdf(null); setAddToolUrl(''); if (addToolPdfRef.current) addToolPdfRef.current.value = '' }}
+                        className="text-xs text-red-400 hover:text-red-600 shrink-0">{t('清除')}</button>
+                    </>
+                  )}
                 </div>
               </div>
               <input value={addToolPassword} onChange={e => setAddToolPassword(e.target.value)} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
