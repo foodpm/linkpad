@@ -10,6 +10,7 @@ import DeadLinksModal from '../components/DeadLinksModal'
 import LinkPreviewHost, { scheduleLinkPreview, cancelLinkPreview } from '../components/LinkPreview'
 import LinkDescriptionInput from '../components/LinkDescriptionInput'
 import CategoryMultiSelect from '../components/CategoryMultiSelect'
+import ModalTitle from '../components/ModalTitle'
 import { RepoPageSkeleton } from '../components/Skeleton'
 import { useT } from '../i18n'
 import { useAutoLinkDescription } from '../hooks/useAutoLinkDescription'
@@ -141,6 +142,7 @@ export default function RepoPage() {
   const [linkIconSrc, setLinkIconSrc] = useState<'auto' | 'upload' | 'text'>('auto')
   const [linkAdding, setLinkAdding] = useState(false)
   const [linkPdf, setLinkPdf] = useState<File | null>(null)
+  const [linkType, setLinkType] = useState<'url' | 'pdf'>('url')
   const [linkPdfUploading, setLinkPdfUploading] = useState(false)
   const [following, setFollowing] = useState(false)
 
@@ -297,6 +299,7 @@ export default function RepoPage() {
   const closeAddLink = () => {
     setShowAddLink(false)
     setLinkName(''); setLinkUrl(''); setLinkCategory([])
+    setLinkType('url')
     resetLinkDesc()
     setLinkIcon(''); setLinkTextIcon(''); setLinkIconSrc('auto')
     setAddLinkDups([]); setAddLinkDupType('exact')
@@ -750,11 +753,14 @@ export default function RepoPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={closeAddLink} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
-            <h3 className="font-bold text-gray-800 mb-4">{t('添加链接')}</h3>
+            <ModalTitle icon={ExternalLink} title={t('添加链接')} />
             <div className="space-y-3">
-              <input value={linkName} onChange={e => setLinkName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <div className="relative">
-                <input value={linkUrl} disabled={!!linkPdf} onChange={e => {
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('名称')}</label>
+                <input value={linkName} onChange={e => setLinkName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
+              <div>
+                <input value={linkUrl} disabled={linkType !== 'url'} onChange={e => {
                   setLinkUrl(e.target.value)
                   scheduleLinkDesc(e.target.value)
                   if (!linkName) { const n = guessNameFromUrl(e.target.value); if (n) setLinkName(n) }
@@ -789,17 +795,34 @@ export default function RepoPage() {
                       }
                     }).finally(() => setFaviconLoading(false))
                   }
-                }} placeholder={linkPdf ? t('已选择 PDF') : t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 disabled:cursor-not-allowed disabled:opacity-70" />
+                }} placeholder={linkType === 'pdf' ? (linkPdf ? t('已选择 PDF') : t('选择 PDF 后自动填充')) : t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 disabled:cursor-not-allowed disabled:opacity-70" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('链接类型：网址或上传 PDF')}</label>
-                <div className="flex items-center gap-2">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('链接类型（网站 / PDF 二选一）')}</label>
+                <select
+                  value={linkType}
+                  onChange={e => {
+                    const next = e.target.value as 'url' | 'pdf'
+                    setLinkType(next)
+                    if (next === 'url') {
+                      setLinkPdf(null)
+                      if (linkPdfRef.current) linkPdfRef.current.value = ''
+                    } else {
+                      setLinkUrl('')
+                    }
+                  }}
+                  className="w-full h-11 px-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm"
+                >
+                  <option value="url">{t('网站')}</option>
+                  <option value="pdf">{t('PDF')}</option>
+                </select>
+                <div className="flex items-center gap-2 mt-2">
                   <input ref={linkPdfRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleLinkPdfSelect} />
-                  <button type="button" onClick={() => linkPdfRef.current?.click()} disabled={linkPdfUploading || !!linkPdf}
+                  <button type="button" onClick={() => linkPdfRef.current?.click()} disabled={linkType !== 'pdf' || linkPdfUploading}
                     className="px-3 py-1.5 rounded-xl bg-white/60 border border-white/80 text-xs text-gray-600 hover:bg-white/90 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-1 transition-all">
                     {linkPdfUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />} {linkPdfUploading ? t('上传中...') : t('选择 PDF')}
                   </button>
-                  {linkPdf && (
+                  {linkType === 'pdf' && linkPdf && (
                     <>
                       <span className="text-xs text-gray-500 truncate max-w-[180px]" title={linkPdf.name}>{linkPdf.name}</span>
                       <button type="button" onClick={() => { setLinkPdf(null); setLinkUrl(''); if (linkPdfRef.current) linkPdfRef.current.value = '' }}
@@ -916,7 +939,7 @@ export default function RepoPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => { setEditLink(null); setEditLinkDups([]) }} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
-            <h3 className="font-bold text-gray-800 mb-4">{t('编辑链接')}</h3>
+            <ModalTitle icon={Edit3} title={t('编辑链接')} />
             <div className="space-y-3">
               {/* Icon preview + editor */}
               <div className="flex flex-col items-center gap-2 pb-2">
@@ -948,8 +971,13 @@ export default function RepoPage() {
                   <input value={editLink.icon || ''} onChange={e => setEditLink({ ...editLink, icon: e.target.value })} placeholder={t('图标文字（最多4字）')} maxLength={4} className="w-full h-10 px-4 bg-white/60 border border-white/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-xs text-center" />
                 )}
               </div>
-              <input value={editLink.name} onChange={e => setEditLink({ ...editLink, name: e.target.value })} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={editLink.url} onChange={e => {
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('名称')}</label>
+                <input value={editLink.name} onChange={e => setEditLink({ ...editLink, name: e.target.value })} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('地址')}</label>
+                <input value={editLink.url} onChange={e => {
                   setEditLink({ ...editLink, url: e.target.value })
                   const u = e.target.value
                   if (!u) { setEditLinkDups([]); return }
@@ -968,6 +996,7 @@ export default function RepoPage() {
                     }
                   }).finally(() => setFaviconLoading(false))
                 }} placeholder={t('地址')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
               {editLinkDups.length > 0 && (
                 <div className="rounded-2xl bg-amber-50/80 border border-amber-200/60 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 text-amber-600 font-medium text-xs mb-1.5">
@@ -988,7 +1017,10 @@ export default function RepoPage() {
                   </div>
                 </div>
               )}
-              <input value={editLink.desc || ''} onChange={e => setEditLink({ ...editLink, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('描述')}</label>
+                <input value={editLink.desc || ''} onChange={e => setEditLink({ ...editLink, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
               {linkCategories.length > 0 && (
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('分类（可多选）')}</label>
@@ -1021,12 +1053,15 @@ export default function RepoPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowMemberAdd(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('添加团队成员')}</h3>
+            <ModalTitle icon={UserPlus} title={t('添加团队成员')} />
             <div className="flex gap-2 mb-3">
               <button onClick={() => { setMemberByEmail(false); setMemberInput('') }} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${!memberByEmail ? 'bg-blue-500 text-white' : 'bg-white/50 text-gray-600'}`}>{t('按昵称')}</button>
               <button onClick={() => { setMemberByEmail(true); setMemberInput('') }} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${memberByEmail ? 'bg-blue-500 text-white' : 'bg-white/50 text-gray-600'}`}>{t('按邮箱')}</button>
             </div>
-            <input value={memberInput} onChange={e => setMemberInput(e.target.value)} placeholder={memberByEmail ? t('输入用户邮箱') : t('输入用户昵称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 mb-3" />
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('成员')}</label>
+              <input value={memberInput} onChange={e => setMemberInput(e.target.value)} placeholder={memberByEmail ? t('输入用户邮箱') : t('输入用户昵称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+            </div>
             <div className="flex gap-2">
               <button onClick={() => setShowMemberAdd(false)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
               <button onClick={addMember} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('添加')}</button>
@@ -1040,7 +1075,7 @@ export default function RepoPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowEditRepo(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
-            <h3 className="font-bold text-gray-800 mb-4">{t('编辑仓库')}</h3>
+            <ModalTitle icon={Settings} title={t('编辑仓库')} />
             <div className="space-y-3">
               <div className="flex items-center gap-4 mb-2">
                 <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold shadow-md flex-shrink-0 overflow-hidden" style={editIconKey ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: editBg, color: '#FFFFFF' }}>
@@ -1051,13 +1086,22 @@ export default function RepoPage() {
                   <button onClick={() => fileInputRef.current?.click()} disabled={iconUploading} className="px-3 py-2 rounded-xl bg-white/60 border border-white/80 text-sm text-gray-600 hover:bg-white/90"><Camera className="w-4 h-4 inline mr-1" />{iconUploading ? t('上传中...') : t('上传图标')}</button>
                 </div>
               </div>
-              <input value={editName} onChange={e => setEditName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder={t('简介')} className="w-full h-20 px-4 py-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 resize-none" />
-              <select value={editVisibility} onChange={e => setEditVisibility(e.target.value)} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
-                <option value="private">{t('私密')}</option>
-                <option value="public">{t('共享')}</option>
-                <option value="password">{t('密码访问')}</option>
-              </select>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('名称')}</label>
+                <input value={editName} onChange={e => setEditName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('简介')}</label>
+                <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder={t('简介')} className="w-full h-20 px-4 py-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 resize-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('可见性')}</label>
+                <select value={editVisibility} onChange={e => setEditVisibility(e.target.value)} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
+                  <option value="private">{t('私密')}</option>
+                  <option value="public">{t('共享')}</option>
+                  <option value="password">{t('密码访问')}</option>
+                </select>
+              </div>
               {editVisibility === 'password' && (
                 <input value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder={t('访问密码')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               )}
@@ -1075,10 +1119,13 @@ export default function RepoPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setEditingCatName(null)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('编辑分类')}</h3>
-            <input value={editCatNewName} onChange={e => setEditCatNewName(e.target.value)}
+            <ModalTitle icon={Tag} title={t('编辑分类')} />
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('分类名称')}</label>
+              <input value={editCatNewName} onChange={e => setEditCatNewName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') renameCategory() }}
-              placeholder={t('分类名称')} autoFocus className="w-full h-12 px-4 mb-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                placeholder={t('分类名称')} autoFocus className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+            </div>
             <div className="flex gap-2">
               <button onClick={() => setEditingCatName(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
               <button onClick={renameCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('保存')}</button>
@@ -1104,7 +1151,7 @@ export default function RepoPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowAddToHome(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('添加到首页')}</h3>
+            <ModalTitle icon={Plus} title={t('添加到首页')} />
             <p className="text-sm text-gray-500 mb-3">{t('选择目标分类：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               {homeCategories.map((cat: any) => (
@@ -1121,7 +1168,7 @@ export default function RepoPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowFollowModal(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{followResync ? t('同步设置') : t('关注仓库')}</h3>
+            <ModalTitle icon={Star} title={followResync ? t('同步设置') : t('关注仓库')} />
             <p className="text-sm text-gray-500 mb-4">{followResync ? t('重新同步会清掉首页中来自该仓库的旧链接，按仓库当前的分类与顺序重新复制一份。') : t('关注后，仓库链接更新会同步更新到您选择的首页菜单。')}</p>
             <p className="text-sm font-medium text-gray-700 mb-2">{t('选择首页分类同步链接：')}</p>
             <select value={followCatId} onChange={e => setFollowCatId(e.target.value)} className="w-full h-12 px-4 mb-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">

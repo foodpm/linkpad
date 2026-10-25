@@ -19,6 +19,7 @@ import CreateRepoModal from './components/CreateRepoModal'
 import WelcomeModal from './components/WelcomeModal'
 import Toast, { showToast } from './components/Toast'
 import CategoryMultiSelect from './components/CategoryMultiSelect'
+import ModalTitle from './components/ModalTitle'
 import { HomeSkeleton } from './components/Skeleton'
 import {
  Search, Menu, X, Home, Heart, Compass, ChevronDown, Star, User, Plus, Box, Globe,
@@ -418,6 +419,7 @@ export default function App() {
   const [addToolIconSrc, setAddToolIconSrc] = useState<'auto' | 'upload' | 'text'>('auto')
   const [addToolRefreshing, setAddToolRefreshing] = useState(false)
   const [addToolPdf, setAddToolPdf] = useState<File | null>(null)
+  const [addToolType, setAddToolType] = useState<'url' | 'pdf'>('url')
   const [addToolPdfUploading, setAddToolPdfUploading] = useState(false)
   const addToolDupTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const addToolFileRef = useRef<HTMLInputElement>(null)
@@ -1287,6 +1289,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
   const closeAddTool = () => {
     setShowAddTool(false)
     setAddToolName(''); setAddToolUrl(''); setAddToolPassword(''); setAddToolCats([])
+    setAddToolType('url')
     resetAddToolDesc()
     setAddToolIcon(''); setAddToolTextIcon(''); setAddToolIconSrc('auto')
     setAddToolCatError(''); setAddToolDups([]); setAddToolDupType('exact')
@@ -2214,7 +2217,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
             {parentCatId === '__select__' ? (
               <>
-                <h3 className="font-bold text-gray-800 mb-4">{t('创建子分类')}</h3>
+                <ModalTitle icon={Layers} title={t('创建子分类')} />
                 <select value="" onChange={e => setParentCatId(e.target.value)}
                   className="w-full h-12 px-4 mb-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
                   <option value="" disabled>{t('请选择父菜单')}</option>
@@ -2233,7 +2236,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               </>
             ) : (
               <>
-                <h3 className="font-bold text-gray-800 mb-4">{t('创建菜单')}</h3>
+                <ModalTitle icon={FolderPlus} title={t('创建菜单')} />
                 <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder={t('菜单名称')} autoFocus
                   className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                 <input value={newCatPassword} onChange={e => setNewCatPassword(e.target.value)} type="password" placeholder={t('密码（选填）')}
@@ -2259,7 +2262,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               const isSubCat = cat?.parent_id;
               return (
                 <>
-                  <h3 className="font-bold text-gray-800 mb-4">{isSubCat ? t('编辑子分类') : t('编辑菜单')}</h3>
+                  <ModalTitle icon={isSubCat ? Layers : FolderPlus} title={isSubCat ? t('编辑子分类') : t('编辑菜单')} />
                   {isSubCat && (
                     <p className="text-xs text-blue-600 mb-3 bg-blue-50 px-3 py-1.5 rounded-lg inline-block">{t('父菜单：')}{t(categoryList.find(c => c.id === cat?.parent_id)?.name || '')}</p>
                   )}
@@ -2290,10 +2293,15 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={closeAddTool} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
-            <h3 className="font-bold text-gray-800 mb-4">{t('添加链接')}</h3>
+            <ModalTitle icon={Link2} title={t('添加链接')} />
             <div className="space-y-3">
-              <input value={addToolName} onChange={e => setAddToolName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={addToolUrl} disabled={!!addToolPdf} onChange={e => {
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('名称')}</label>
+                <input value={addToolName} onChange={e => setAddToolName(e.target.value)} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{addToolType === 'pdf' ? t('PDF 文件') : t('地址')}</label>
+                <input value={addToolUrl} disabled={addToolType !== 'url'} onChange={e => {
                   setAddToolUrl(e.target.value)
                   const u = e.target.value
                   scheduleAddToolDesc(u)
@@ -2327,7 +2335,8 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                       }
                     })
                   }
-                }} placeholder={addToolPdf ? t('已选择 PDF') : t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 disabled:cursor-not-allowed disabled:opacity-70" />
+                }} placeholder={addToolType === 'pdf' ? (addToolPdf ? t('已选择 PDF') : t('选择 PDF 后自动填充')) : t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 disabled:cursor-not-allowed disabled:opacity-70" />
+              </div>
               {addToolDups.length > 0 && (
                 <div className="rounded-2xl bg-amber-50/80 border border-amber-200/60 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 text-amber-600 font-medium text-xs mb-1.5">
@@ -2356,14 +2365,31 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 onFetch={() => fetchAddToolDesc(addToolUrl, true)}
               />
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('链接类型：网址或上传 PDF')}</label>
-                <div className="flex items-center gap-2">
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('链接类型（网站 / PDF 二选一）')}</label>
+                <select
+                  value={addToolType}
+                  onChange={e => {
+                    const next = e.target.value as 'url' | 'pdf'
+                    setAddToolType(next)
+                    if (next === 'url') {
+                      setAddToolPdf(null)
+                      if (addToolPdfRef.current) addToolPdfRef.current.value = ''
+                    } else {
+                      setAddToolUrl('')
+                    }
+                  }}
+                  className="w-full h-11 px-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm"
+                >
+                  <option value="url">{t('网站')}</option>
+                  <option value="pdf">{t('PDF')}</option>
+                </select>
+                <div className="flex items-center gap-2 mt-2">
                   <input ref={addToolPdfRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleAddToolPdfSelect} />
-                  <button type="button" onClick={() => addToolPdfRef.current?.click()} disabled={addToolPdfUploading || !!addToolPdf}
+                  <button type="button" onClick={() => addToolPdfRef.current?.click()} disabled={addToolType !== 'pdf' || addToolPdfUploading}
                     className="inline-flex items-center gap-1 rounded-xl border border-white/80 bg-white/60 px-3 py-1.5 text-xs text-gray-600 transition-all hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60">
                     {addToolPdfUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />} {addToolPdfUploading ? t('上传中...') : t('选择 PDF')}
                   </button>
-                  {addToolPdf && (
+                  {addToolType === 'pdf' && addToolPdf && (
                     <>
                       <span className="max-w-[180px] truncate text-xs text-gray-500" title={addToolPdf.name}>{addToolPdf.name}</span>
                       <button type="button" onClick={() => { setAddToolPdf(null); setAddToolUrl(''); if (addToolPdfRef.current) addToolPdfRef.current.value = '' }}
@@ -2458,7 +2484,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setEditTool(null)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
-            <h3 className="font-bold text-gray-800 mb-4">{t('编辑链接')}</h3>
+            <ModalTitle icon={Edit3} title={t('编辑链接')} />
             <div className="space-y-3">
               {/* Icon preview + editor */}
               <div className="flex flex-col items-center gap-2 pb-2">
@@ -2488,8 +2514,13 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   <input value={editTool.icon || ''} onChange={e => setEditTool({ ...editTool, icon: e.target.value })} placeholder={t('图标文字（最多4字）')} maxLength={4} className="w-full h-10 px-4 bg-white/60 border border-white/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400 text-xs text-center" />
                 )}
               </div>
-              <input value={editTool.name} onChange={e => setEditTool({ ...editTool, name: e.target.value })} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={editTool.url} onChange={e => {
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('名称')}</label>
+                <input value={editTool.name} onChange={e => setEditTool({ ...editTool, name: e.target.value })} placeholder={t('名称')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('地址')}</label>
+                <input value={editTool.url} onChange={e => {
                   setEditTool({ ...editTool, url: e.target.value })
                   const u = e.target.value
                   if (!u) return
@@ -2499,8 +2530,15 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                     }
                   })
                 }} placeholder={t('地址')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={editTool.desc || ''} onChange={e => setEditTool({ ...editTool, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
-              <input value={editTool.password || ''} onChange={e => setEditTool({ ...editTool, password: e.target.value })} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('描述')}</label>
+                <input value={editTool.desc || ''} onChange={e => setEditTool({ ...editTool, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('密码（选填）')}</label>
+                <input value={editTool.password || ''} onChange={e => setEditTool({ ...editTool, password: e.target.value })} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
               {/* Category selector */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('分类（可多选）')}</label>
@@ -2633,7 +2671,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => { setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('') }} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('此链接需要密码')}</h3>
+            <ModalTitle icon={Lock} title={t('此链接需要密码')} />
             <input type="password" value={linkPwdInput} onChange={e => { setLinkPwdInput(e.target.value); setLinkPwdError('') }}
               onKeyDown={e => { if (e.key === 'Enter') {
                 if (linkPwdInput === linkPwdDialog.tool.password) {
@@ -2688,7 +2726,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowAddToHome(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('添加到首页')}</h3>
+            <ModalTitle icon={Plus} title={t('添加到首页')} />
             <p className="text-sm text-gray-500 mb-3">{t('选择目标分类：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               {categoryList.map((cat: any) => (
@@ -2705,7 +2743,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowWidgetSelector(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('添加组件')}</h3>
+            <ModalTitle icon={Puzzle} title={t('添加组件')} />
             <div className="space-y-1">
               <button onClick={() => { setShowWidgetSelector(false); setShowStockSearch(true) }}
                 className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">
@@ -2827,7 +2865,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-[60] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowWeatherCitySearch(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-3">{t('选择天气地区')}</h3>
+            <ModalTitle icon={CloudSun} title={t('选择天气地区')} />
             <input autoFocus value={weatherQuery} onChange={(e) => setWeatherQuery(e.target.value)}
               placeholder={t('输入城市名，如：上海 / Tokyo')}
               className="w-full h-11 px-4 rounded-2xl bg-gray-50 border border-gray-100 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-emerald-300 transition-all" />
@@ -2856,7 +2894,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
             {!pendingStock ? (
               <>
-                <h3 className="font-bold text-gray-800 mb-4">{t('选择股票')}</h3>
+                <ModalTitle icon={TrendingUp} title={t('选择股票')} />
                 <input type="text" value={stockSearchQuery} onChange={e => setStockSearchQuery(e.target.value)}
                   placeholder={t('输入股票代码或名称，如 AAPL')} autoFocus
                   className="w-full h-11 px-4 mb-3 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm" />
@@ -2879,7 +2917,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               </>
             ) : (
               <>
-                <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+                <ModalTitle icon={Gem} title={t('选择分类')} />
                 <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{pendingStock.symbol}</span> {t('添加到：')}</p>
                 <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
                   <button onClick={() => confirmAddStock(pendingStock, '__frequent__')}
@@ -2904,7 +2942,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowGoldCategorySelect(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <ModalTitle icon={TrendingUp} title={t('选择分类')} />
             <p className="text-sm text-gray-500 mb-3">{t('将黄金价格添加到：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               <button onClick={() => confirmAddGold('__frequent__')}
@@ -2927,7 +2965,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowCountdownCategorySelect(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <ModalTitle icon={CalendarDays} title={t('选择分类')} />
             <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('倒计时')}</span> {t('添加到：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               <button onClick={() => confirmAddCountdown('__frequent__')}
@@ -2950,7 +2988,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowTodoCategorySelect(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <ModalTitle icon={CheckSquare} title={t('选择分类')} />
             <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('待办事项')}</span> {t('添加到：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               <button onClick={() => confirmAddTodo('__frequent__')}
@@ -2973,7 +3011,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowFishtankCategorySelect(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <ModalTitle icon={Fish} title={t('选择分类')} />
             <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('仿真鱼缸')}</span> {t('添加到：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               <button onClick={() => confirmAddFishtank('__frequent__')}
@@ -2996,7 +3034,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowWeatherCardCategorySelect(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <ModalTitle icon={CloudSun} title={t('选择分类')} />
             <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('天气')}</span> {t('添加到：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               <button onClick={() => confirmAddWeatherCard('__frequent__')}
@@ -3019,7 +3057,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setWidgetEditTarget(null)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('修改分类')}</h3>
+            <ModalTitle icon={Puzzle} title={t('修改分类')} />
             <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{widgetEditTarget.name || t('组件')}</span> {t('移动到：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               <button onClick={() => applyWidgetMove('__frequent__')}
@@ -3042,7 +3080,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setPendingWeread(false)} />
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="font-bold text-gray-800 mb-4">{t('选择分类')}</h3>
+            <ModalTitle icon={BookOpen} title={t('选择分类')} />
             <p className="text-sm text-gray-500 mb-3">{t('将')} <span className="font-semibold text-gray-700">{t('微信读书笔记')}</span> {t('添加到：')}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden">
               <button onClick={() => confirmAddWeread('__frequent__')}

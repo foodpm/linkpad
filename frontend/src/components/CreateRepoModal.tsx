@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { X, Tag, Globe, Lock, KeyRound, Palette, Camera, Loader } from 'lucide-react'
 import { repos } from '../api'
 import { useT } from '../i18n'
+import ModalTitle from './ModalTitle'
 
 const palette = [
   { bg: '#3B82F6', text: '#FFFFFF' }, { bg: '#EF4444', text: '#FFFFFF' },
@@ -93,7 +94,7 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
       <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-8 w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto [&::-webkit-scrollbar]:hidden">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
 
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">{t('创建仓库')}</h2>
+        <ModalTitle icon={Globe} title={t('创建仓库')} />
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Icon row - separate */}
