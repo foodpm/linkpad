@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { openLinkUrl } from '../api'
 import { ExternalLink, Link2Off, Trash2 } from 'lucide-react'
 import { useT } from '../i18n'
 
@@ -52,7 +53,7 @@ export default function DeadLinksModal({ open, links, busy, onClose, onRemove }:
             <label key={l.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-white/60 border border-white/80 cursor-pointer hover:bg-white/90">
               <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggle(l.id)} className="w-4 h-4 accent-blue-500 flex-shrink-0" />
               {/* 点击名称/地址在新标签页打开链接目标页面；stopPropagation 避免触发勾选 */}
-              <a href={l.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="flex-1 min-w-0 group">
+              <a href={l.url} target="_blank" rel="noopener noreferrer" onClick={e => { e.stopPropagation(); if (/\/api\/pdfs\/[0-9a-f-]{36}/.test(l.url || '')) { e.preventDefault(); openLinkUrl(l.url) } }} className="flex-1 min-w-0 group">
                 <div className="text-sm text-gray-800 truncate group-hover:text-blue-600 transition-colors" title={l.name}>{l.name}</div>
                 <div className="flex items-center gap-1 text-xs text-gray-400 group-hover:text-blue-500 transition-colors">
                   <span className="truncate" title={l.url}>{l.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span>
@@ -66,7 +67,7 @@ export default function DeadLinksModal({ open, links, busy, onClose, onRemove }:
           ))}
         </div>
         <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('暂不处理')}</button>
+          <button onClick={onClose} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('暂不处理')}</button>
           <button disabled={busy || selected.size === 0} onClick={() => onRemove([...selected])}
             className="flex-1 h-11 rounded-2xl bg-red-500 text-white hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
             <Trash2 className="w-4 h-4" />{busy ? t('移除中...') : t('移除所选 ({n})', { n: selected.size })}

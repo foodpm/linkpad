@@ -541,7 +541,7 @@ export function WereadSetupModal({ onClose, onSaved }: {
           className="w-full h-11 px-4 mb-2 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm" />
         {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
         <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+          <button onClick={onClose} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           <button onClick={submit} disabled={saving}
             className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 flex items-center justify-center gap-1.5">
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}{t('验证并保存')}

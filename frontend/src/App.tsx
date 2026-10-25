@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { useT } from './i18n'
-import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, pdfLinks, type WeatherData } from './api'
+import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, pdfLinks, openLinkUrl, type WeatherData } from './api'
 import { gold } from './api'
 import { categories as defaultCategories, tools as defaultTools } from './data'
 import { useAutoLinkDescription } from './hooks/useAutoLinkDescription'
@@ -1310,6 +1310,8 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     const colors = toolPalette[addToolColor]
     // 图标获取失败时兜底：截取名称前 4 个字符作为文字图标
     const icon = isImageIcon(addToolIcon) ? addToolIcon : (addToolTextIcon || addToolName.slice(0, 4))
+    const pdfMatch = /\/api\/pdfs\/([0-9a-f-]{36})/.exec(addToolUrl || '')
+    if (pdfMatch) await pdfLinks.claim(pdfMatch[1]).catch(() => {})
     const newTool = normalizeToolCategories(await tools.create({ name: addToolName, url: addToolUrl, desc: addToolDesc, category_ids: addToolCats, icon, bg_color: colors.bg, text_color: colors.text, password: addToolPassword || undefined }))
     closeAddTool()
     setToolList(prev => [...prev, newTool])
@@ -2233,7 +2235,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 <input value={newCatPassword} onChange={e => setNewCatPassword(e.target.value)} type="password" placeholder={t('密码（选填）')}
                   className="w-full h-12 px-4 mt-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                 <div className="flex gap-2 mt-3">
-                  <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                  <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword('') }} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                   <button onClick={createCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('创建')}</button>
                 </div>
               </>
@@ -2246,7 +2248,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   className="w-full h-12 px-4 mt-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
                 <IconPicker value={newCatIcon} onChange={setNewCatIcon} />
                 <div className="flex gap-2 mt-3">
-                  <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword(''); setNewCatIcon('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                  <button onClick={() => { setShowCreateCat(false); setParentCatId(''); setNewCatPassword(''); setNewCatIcon('') }} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                   <button onClick={createCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('创建')}</button>
                 </div>
               </>
@@ -2281,7 +2283,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   )}
                   {!isSubCat && <IconPicker value={editCatIcon} onChange={setEditCatIcon} />}
                   <div className="flex gap-2 mt-3">
-                    <button onClick={() => { setEditCatId(null); setEditCatPassword(''); setEditCatIcon('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                    <button onClick={() => { setEditCatId(null); setEditCatPassword(''); setEditCatIcon('') }} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                     <button onClick={updateCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('保存')}</button>
                   </div>
                 </>
@@ -2481,7 +2483,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 )}
               </div>
               <div className="flex gap-2">
-                <button onClick={closeAddTool} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                <button onClick={closeAddTool} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                 <button onClick={createTool} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('添加')}</button>
               </div>
             </div>
@@ -2568,7 +2570,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 />
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setEditTool(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                <button onClick={() => setEditTool(null)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                 <button onClick={updateTool} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('保存')}</button>
               </div>
             </div>
@@ -2669,7 +2671,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
             <p className="text-sm text-gray-700 mb-6 leading-relaxed">{confirmAction.message}</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmAction(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              <button onClick={() => setConfirmAction(null)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
               <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 h-11 rounded-2xl bg-red-500 text-white hover:bg-red-600">{t('确认')}</button>
             </div>
           </div>
@@ -2685,7 +2687,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
             <input type="password" value={linkPwdInput} onChange={e => { setLinkPwdInput(e.target.value); setLinkPwdError('') }}
               onKeyDown={e => { if (e.key === 'Enter') {
                 if (linkPwdInput === linkPwdDialog.tool.password) {
-                  window.open(linkPwdDialog.url, '_blank')
+                  openLinkUrl(linkPwdDialog.url)
                   setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('')
                 } else {
                   setLinkPwdError(t('密码错误'))
@@ -2695,10 +2697,10 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               className="w-full h-12 px-4 mb-3 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
             {linkPwdError && <p className="text-xs text-red-500 mb-3">{linkPwdError}</p>}
             <div className="flex gap-2">
-              <button onClick={() => { setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('') }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              <button onClick={() => { setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('') }} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
               <button onClick={() => {
                 if (linkPwdInput === linkPwdDialog.tool.password) {
-                  window.open(linkPwdDialog.url, '_blank')
+                  openLinkUrl(linkPwdDialog.url)
                   setLinkPwdDialog(null); setLinkPwdInput(''); setLinkPwdError('')
                 } else {
                   setLinkPwdError(t('密码错误'))
@@ -2744,7 +2746,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{t(cat.name)}</button>
               ))}
             </div>
-            <button onClick={() => setShowAddToHome(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+            <button onClick={() => setShowAddToHome(false)} className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           </div>
        </div>
      )}
@@ -2865,7 +2867,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 </button>
               ))}
             </div>
-            <button onClick={() => setShowWidgetSelector(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+            <button onClick={() => setShowWidgetSelector(false)} className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           </div>
         </div>
       )}
@@ -2892,7 +2894,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 </button>
               ))}
             </div>
-            <button onClick={() => setShowWeatherCitySearch(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+            <button onClick={() => setShowWeatherCitySearch(false)} className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           </div>
         </div>
       )}
@@ -2923,7 +2925,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   ))}
                 </div>
                 <button onClick={() => { setShowStockSearch(false); setStockSearchQuery(''); setStockSearchResults([]) }}
-                  className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                  className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
               </>
             ) : (
               <>
@@ -2940,7 +2942,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                   ))}
                 </div>
                 <button onClick={() => setPendingStock(null)}
-                  className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('返回')}</button>
+                  className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('返回')}</button>
               </>
             )}
           </div>
@@ -2965,7 +2967,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               ))}
             </div>
             <button onClick={() => setShowGoldCategorySelect(false)}
-              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           </div>
         </div>
       )}
@@ -2988,7 +2990,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               ))}
             </div>
             <button onClick={() => setShowCountdownCategorySelect(false)}
-              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('返回')}</button>
+              className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('返回')}</button>
           </div>
         </div>
       )}
@@ -3011,7 +3013,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               ))}
             </div>
             <button onClick={() => setShowTodoCategorySelect(false)}
-              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           </div>
         </div>
       )}
@@ -3034,7 +3036,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               ))}
             </div>
             <button onClick={() => setShowFishtankCategorySelect(false)}
-              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('返回')}</button>
+              className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('返回')}</button>
           </div>
         </div>
       )}
@@ -3057,7 +3059,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               ))}
             </div>
             <button onClick={() => setShowWeatherCardCategorySelect(false)}
-              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           </div>
         </div>
       )}
@@ -3080,7 +3082,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               ))}
             </div>
             <button onClick={() => setWidgetEditTarget(null)}
-              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           </div>
         </div>
       )}
@@ -3103,7 +3105,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               ))}
             </div>
             <button onClick={() => setPendingWeread(false)}
-              className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('返回')}</button>
+              className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('返回')}</button>
           </div>
         </div>
       )}
@@ -3204,7 +3206,11 @@ function ToolCard({ tool }: { tool: any }) {
   const t = useT()
   const initials = tool.name?.charAt(0)?.toUpperCase() || '?'
   return (
-    <motion.a href={tool.url} target="_blank" rel="noopener noreferrer"
+    <motion.a
+      href={tool.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => { if (/\/api\/pdfs\/[0-9a-f-]{36}/.test(tool.url || '')) { e.preventDefault(); openLinkUrl(tool.url) } }}
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
       className="group relative overflow-hidden flex flex-col bg-slate-900/20 backdrop-blur-md border border-white/30 p-5 rounded-2xl hover:bg-slate-900/35 hover:shadow-[0_8px_24px_rgba(0,0,0,0.12)] hover:border-white/50 transition-all duration-300">
       <div className="absolute inset-0 bg-gradient-to-br from-white/15 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
@@ -3419,7 +3425,7 @@ function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropEx
         }
         onMouseLeave={cancelLinkPreview}
         onMouseDown={cancelLinkPreview}
-        onClick={(e) => { cancelLinkPreview(); handleClick(e) }}
+        onClick={(e) => { cancelLinkPreview(); if (/\/api\/pdfs\/[0-9a-f-]{36}/.test(tool.url || '')) { e.preventDefault(); openLinkUrl(tool.url) } ; handleClick(e) }}
         onAuxClick={(e) => { if (e.button === 1) { cancelLinkPreview(); handleClick(e) } }}
         className={minimal
           ? "relative flex h-full w-full items-center justify-center rounded-2xl transition-all hover:shadow-md hover:opacity-90 overflow-hidden"

@@ -187,7 +187,7 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
           {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 
           <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 h-12 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50 transition-all">{t('取消')}</button>
+            <button type="button" onClick={onClose} className="flex-1 h-12 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">{t('取消')}</button>
             <button type="submit" disabled={loading} className="flex-1 h-12 rounded-2xl bg-blue-500 text-white hover:bg-blue-600 transition-all disabled:opacity-50">
               {loading ? t('创建中...') : t('创建')}
             </button>

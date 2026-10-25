@@ -326,7 +326,7 @@ export default function UserPanel({ onClose, onOpenPanelStyleModal, onOpenWallpa
                   className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setEditing(false)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50 transition-all">{t('取消')}</button>
+                <button onClick={() => setEditing(false)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">{t('取消')}</button>
                 <button onClick={handleSaveProfile} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600 transition-all">{t('保存')}</button>
               </div>
             </div>

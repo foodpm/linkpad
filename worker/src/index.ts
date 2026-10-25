@@ -896,11 +896,26 @@ app.post('/api/upload/pdf', async (c) => {
 // Stream inline for small files; Cloudflare does not use Content-Disposition as
 // a cache key, so private metadata remains safe for signed-in access.
 app.get('/api/pdfs/:id', async (c) => {
-  const user = await getUser(c)
-  if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const id = c.req.param('id')
-  const row = await c.env.DB.prepare('SELECT id, r2_key, size FROM link_uploads WHERE id = ? AND user_id = ?').bind(id, user.id).first<any>()
+  const row = await c.env.DB.prepare('SELECT id, user_id, owner, r2_key, size FROM link_uploads WHERE id = ?').bind(id).first<any>()
   if (!row) return c.json({ error: T(c, '文件不存在') }, 404)
+
+  // 顶部导航（新标签页）无法带 Authorization 头，允许用 URL 里的 JWT 校验；
+  // 历史数据没有 owner 时，由首个合法访问者认领，保证已创建的 PDF 链接可用。
+  const user = await getUser(c)
+  let viewerId: string | null = user?.id ?? null
+  if (!viewerId) {
+    const token = c.req.query('t')
+    const payload = token ? await verifyJWT(token, c.env.JWT_SECRET) : null
+    viewerId = payload?.sub ? String(payload.sub) : null
+  }
+  if (!viewerId) return c.json({ error: T(c, '未登录') }, 401)
+  if (!row.owner) {
+    await c.env.DB.prepare('UPDATE link_uploads SET owner = ? WHERE id = ? AND owner IS NULL').bind(viewerId, id).run()
+    row.owner = viewerId
+  }
+  if (row.owner !== viewerId) return c.json({ error: T(c, '无权访问') }, 403)
+
   const obj = await c.env.R2.get(row.r2_key)
   if (!obj) return c.json({ error: 'Not found' }, 404)
   const headers = new Headers()
@@ -910,6 +925,20 @@ app.get('/api/pdfs/:id', async (c) => {
   headers.set('Cache-Control', 'private, max-age=86400')
   headers.set('etag', obj.httpEtag)
   return new Response(obj.body, { headers })
+})
+
+// 创建链接时把上传记录绑定到当前用户，避免靠首次打开认领属主
+app.post('/api/pdfs/:id/claim', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
+  const id = c.req.param('id')
+  const row = await c.env.DB.prepare('SELECT id, user_id, owner FROM link_uploads WHERE id = ?').bind(id).first<any>()
+  if (!row) return c.json({ error: T(c, '文件不存在') }, 404)
+  if (row.owner && row.owner !== user.id) return c.json({ error: T(c, '无权操作') }, 403)
+  if (!row.owner) {
+    await c.env.DB.prepare('UPDATE link_uploads SET owner = ? WHERE id = ?').bind(user.id, id).run()
+  }
+  return c.json({ success: true })
 })
 
 

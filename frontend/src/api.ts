@@ -13,6 +13,17 @@ function setToken(token: string | null) {
 
 export { getToken, setToken, API_BASE }
 
+// 新标签页打开链接；/api/pdfs/ 目标在新标签页里没有 Authorization 头，
+// 追加一次性带上 JWT 查询参数，由后端校验
+export function openLinkUrl(url: string) {
+  const token = getToken()
+  const pdfMatch = /\/api\/pdfs\/([0-9a-f-]{36})/.exec(url || '')
+  const target = pdfMatch && token
+    ? `${API_BASE}/api/pdfs/${pdfMatch[1]}?t=${encodeURIComponent(token)}`
+    : url
+  window.open(target, '_blank', 'noopener,noreferrer')
+}
+
 async function request(path: string, options: RequestInit = {}) {
   const token = getToken()
   const headers: Record<string, string> = {
@@ -240,6 +251,9 @@ export const pdfLinks = {
       throw new Error(err.error || `HTTP ${res.status}`)
     }
     return res.json()
+  },
+  claim: async (id: string): Promise<void> => {
+    await request(`/api/pdfs/${id}/claim`, { method: 'POST' })
   },
 }
 

@@ -504,7 +504,7 @@ export function CountdownEventModal({ initial, onClose, onSubmit }: {
         </div>
         {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
         <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+          <button onClick={onClose} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           <button onClick={submit} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('确定')}</button>
         </div>
       </div>

@@ -258,6 +258,7 @@ CREATE INDEX IF NOT EXISTS idx_link_category_assignments_category
 CREATE TABLE IF NOT EXISTS link_uploads (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
+  owner TEXT,
   r2_key TEXT NOT NULL,
   filename TEXT NOT NULL,
   content_type TEXT NOT NULL,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
-import { repos, links, follows, bookmarks, categories as homeCats, tools, faviconCache, pdfLinks } from '../api'
+import { repos, links, follows, bookmarks, categories as homeCats, tools, faviconCache, pdfLinks, openLinkUrl } from '../api'
 import { Plus, ExternalLink, Star, Heart, Edit3, Trash2, Tag, Lock as LockIcon, Settings, UserPlus, Users, Save, Camera, X, Home, MoreVertical, Loader2, AlertTriangle, Link2Off, RefreshCw, FileText } from 'lucide-react'
 import { showToast } from '../components/Toast'
 import Toast from '../components/Toast'
@@ -319,6 +319,8 @@ export default function RepoPage() {
     try {
       // 图标获取失败时兜底：截取名称前 4 个字符作为文字图标
       const icon = isImageIcon(linkIcon) ? linkIcon : (linkTextIcon || linkName.slice(0, 4))
+      const pdfMatch = /\/api\/pdfs\/([0-9a-f-]{36})/.exec(linkUrl || '')
+      if (pdfMatch) await pdfLinks.claim(pdfMatch[1]).catch(() => {})
       await repos.links.create(id, { name: linkName, url: linkUrl, icon, category_ids: linkCategory, desc: linkDesc })
       setLinkList(await repos.links.list(id))
       closeAddLink()
@@ -937,7 +939,7 @@ export default function RepoPage() {
                 )}
               </div>
               <div className="flex gap-2">
-                <button onClick={closeAddLink} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                <button onClick={closeAddLink} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                 <button onClick={addLink} disabled={linkAdding} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed">{linkAdding ? t('正在保存...') : t('添加')}</button>
               </div>
             </div>
@@ -1051,7 +1053,7 @@ export default function RepoPage() {
                 </div>
               )}
               <div className="flex gap-2">
-                <button onClick={() => { setEditLink(null); setEditLinkDups([]) }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                <button onClick={() => { setEditLink(null); setEditLinkDups([]) }} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                 <button onClick={updateLink} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('保存')}</button>
               </div>
             </div>
@@ -1074,7 +1076,7 @@ export default function RepoPage() {
               <input value={memberInput} onChange={e => setMemberInput(e.target.value)} placeholder={memberByEmail ? t('输入用户邮箱') : t('输入用户昵称')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setShowMemberAdd(false)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              <button onClick={() => setShowMemberAdd(false)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
               <button onClick={addMember} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('添加')}</button>
             </div>
           </div>
@@ -1117,7 +1119,7 @@ export default function RepoPage() {
                 <input value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder={t('访问密码')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               )}
               <div className="flex gap-2">
-                <button onClick={() => setShowEditRepo(false)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                <button onClick={() => setShowEditRepo(false)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                 <button onClick={saveEditRepo} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600"><Save className="w-4 h-4 inline mr-1" />{t('保存')}</button>
               </div>
             </div>
@@ -1138,7 +1140,7 @@ export default function RepoPage() {
                 placeholder={t('分类名称')} autoFocus className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setEditingCatName(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              <button onClick={() => setEditingCatName(null)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
               <button onClick={renameCategory} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('保存')}</button>
             </div>
           </div>
@@ -1170,7 +1172,7 @@ export default function RepoPage() {
                   className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-all">{cat.name}</button>
               ))}
             </div>
-            <button onClick={() => setShowAddToHome(false)} className="w-full mt-3 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+            <button onClick={() => setShowAddToHome(false)} className="w-full mt-3 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
           </div>
         </div>
       )}
@@ -1222,7 +1224,7 @@ export default function RepoPage() {
                 </>
               ) : (
                 <>
-                  <button onClick={() => setShowFollowModal(false)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+                  <button onClick={() => setShowFollowModal(false)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
                   <button onClick={followWithCategory} disabled={following} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60">{following ? t('正在关注...') : t('确认关注')}</button>
                 </>
               )}
@@ -1241,7 +1243,7 @@ export default function RepoPage() {
           <div className="relative bg-white rounded-3xl border border-white/60 shadow-xl p-6 w-full max-w-sm mx-4">
             <p className="text-sm text-gray-700 mb-6 leading-relaxed">{confirmAction.message}</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmAction(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
+              <button onClick={() => setConfirmAction(null)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>
               <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 h-11 rounded-2xl bg-red-500 text-white hover:bg-red-600">{t('确认')}</button>
             </div>
           </div>
@@ -1322,7 +1324,7 @@ function LinkSection({ title, links: linkList, canManage, githubStars, onContext
                   e.currentTarget)}
                 onMouseLeave={cancelLinkPreview}
                 onMouseDown={cancelLinkPreview}
-                onClick={cancelLinkPreview}
+                onClick={(e) => { cancelLinkPreview(); if (/\/api\/pdfs\/[0-9a-f-]{36}/.test(link.url || '')) { e.preventDefault(); openLinkUrl(link.url) } }}
                 className="block p-3.5 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md hover:border-white/90 transition-all duration-200 ring-1 ring-black/[0.03]">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden shadow-sm"
