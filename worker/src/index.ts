@@ -838,6 +838,73 @@ app.get('/api/extension', async (c) => {
 })
 
 // ==================== Repo helpers ====================
+// ==================== Uploaded PDF Links ====================
+
+const PDF_TYPES = ['application/pdf']
+const PDF_LIMIT = 100 * 1024 * 1024
+const PDF_INLINE_LIMIT = 20 * 1024 * 1024
+
+async function authorizePdfRepoAccess(c: any, repoId: string) {
+  const user = await getUser(c)
+  if (!user) return null
+  const repo = await c.env.DB.prepare('SELECT id, user_id FROM repositories WHERE id = ?').bind(repoId).first() as any
+  if (!repo) return null
+  const member = await c.env.DB.prepare('SELECT id FROM repo_members WHERE repo_id = ? AND user_id = ?').bind(repoId, user.id).first()
+  if (repo.user_id !== user.id && !member) return null
+  return user
+}
+
+async function authorizePdfLinkAccess(c: any, linkId: string) {
+  const user = await getUser(c)
+  if (!user) return null
+  const link = await c.env.DB.prepare(
+    'SELECT l.*, r.user_id FROM repo_links l JOIN repositories r ON r.id = l.repo_id WHERE l.id = ?'
+  ).bind(linkId).first() as any
+  if (!link) return null
+  const member = await c.env.DB.prepare('SELECT id FROM repo_members WHERE repo_id = ? AND user_id = ?').bind(link.repo_id, user.id).first()
+  if (link.user_id !== user.id && !member) return null
+  return { user, link }
+}
+
+// Store the file in R2 and expose a stable app URL that the link record uses.
+app.post('/api/upload/pdf', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
+  const formData = await c.req.parseBody()
+  const file = formData['file'] as File | null
+  if (!file) return c.json({ error: T(c, '请选择文件') }, 400)
+  if (!PDF_TYPES.includes(file.type)) return c.json({ error: T(c, '仅支持 PDF 文件') }, 400)
+  if (file.size > PDF_LIMIT) return c.json({ error: T(c, 'PDF 过大（超过 100MB）') }, 400)
+
+  const id = crypto.randomUUID()
+  const r2Key = `pdfs/${user.id}/${id}.pdf`
+  await c.env.R2.put(r2Key, await file.arrayBuffer(), { httpMetadata: { contentType: 'application/pdf' } })
+  await c.env.DB.prepare(
+    `INSERT INTO link_uploads (id, user_id, r2_key, filename, content_type, size)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(id, user.id, r2Key, file.name || `${id}.pdf`, 'application/pdf', file.size).run()
+  return c.json({ id, filename: file.name || `${id}.pdf`, size: file.size }, 201)
+})
+
+// Stream inline for small files; Cloudflare does not use Content-Disposition as
+// a cache key, so private metadata remains safe for signed-in access.
+app.get('/api/pdfs/:id', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
+  const id = c.req.param('id')
+  const row = await c.env.DB.prepare('SELECT id, r2_key, size FROM link_uploads WHERE id = ? AND user_id = ?').bind(id, user.id).first<any>()
+  if (!row) return c.json({ error: T(c, '文件不存在') }, 404)
+  const obj = await c.env.R2.get(row.r2_key)
+  if (!obj) return c.json({ error: 'Not found' }, 404)
+  const headers = new Headers()
+  obj.writeHttpMetadata(headers)
+  headers.set('Content-Type', 'application/pdf')
+  headers.set('Content-Disposition', 'inline')
+  headers.set('Cache-Control', 'private, max-age=86400')
+  headers.set('etag', obj.httpEtag)
+  return new Response(obj.body, { headers })
+})
+
 
 const palette = [
   { bg: '#3B82F6', text: '#FFFFFF' }, { bg: '#EF4444', text: '#FFFFFF' },
@@ -1140,6 +1207,11 @@ app.delete('/api/links/:id', async (c) => {
   if (!link) return c.json({ error: T(c, '链接不存在') }, 404)
   if (!(await canManageRepo(c, link.repo_id))) return c.json({ error: T(c, '无权删除') }, 403)
 
+  const pdfMatch = /\/api\/pdfs\/([0-9a-f-]{36})/.exec(link.url || '')
+  if (pdfMatch) {
+    await c.env.DB.prepare('DELETE FROM link_uploads WHERE id = ? AND user_id = ?').bind(pdfMatch[1], link.user_id).run()
+    await c.env.R2.delete(`pdfs/${pdfMatch[1]}`)
+  }
   await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM repo_links WHERE id = ?').bind(id).run()
   await c.env.DB.prepare('UPDATE repositories SET link_count = (SELECT COUNT(*) FROM repo_links WHERE repo_id = ?), updated_at = datetime(\'now\') WHERE id = ?').bind(link.repo_id, link.repo_id).run()
@@ -2432,6 +2504,12 @@ app.delete('/api/tools/:id', async (c) => {
 
   // 直接删除用户自己的工具
   await c.env.DB.prepare('DELETE FROM user_tools WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+  const toolRow = await c.env.DB.prepare('SELECT url FROM user_tools WHERE id = ? AND user_id = ?').bind(id, user.id).first<any>()
+  const toolPdfMatch = toolRow ? /\/api\/pdfs\/([0-9a-f-]{36})/.exec(toolRow.url || '') : null
+  if (toolPdfMatch) {
+    await c.env.DB.prepare('DELETE FROM link_uploads WHERE id = ? AND user_id = ?').bind(toolPdfMatch[1], user.id).run()
+    await c.env.R2.delete(`pdfs/${toolPdfMatch[1]}`)
+  }
   await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(id).run()
   return c.json({ success: true })
 })

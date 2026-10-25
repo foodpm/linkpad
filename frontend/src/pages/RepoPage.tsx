@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
-import { repos, links, follows, bookmarks, categories as homeCats, tools, faviconCache } from '../api'
-import { Plus, ExternalLink, Star, Heart, Edit3, Trash2, Tag, Lock as LockIcon, Settings, UserPlus, Users, Save, Camera, X, Home, MoreVertical, Loader2, AlertTriangle, Link2Off, RefreshCw } from 'lucide-react'
+import { repos, links, follows, bookmarks, categories as homeCats, tools, faviconCache, pdfLinks } from '../api'
+import { Plus, ExternalLink, Star, Heart, Edit3, Trash2, Tag, Lock as LockIcon, Settings, UserPlus, Users, Save, Camera, X, Home, MoreVertical, Loader2, AlertTriangle, Link2Off, RefreshCw, FileText } from 'lucide-react'
 import { showToast } from '../components/Toast'
 import Toast from '../components/Toast'
 import AuthModal from '../components/AuthModal'
@@ -92,6 +92,7 @@ export default function RepoPage() {
   const [linkTextIcon, setLinkTextIcon] = useState('')
   const [linkColor, setLinkColor] = useState(Math.floor(Math.random() * 16))
   const linkFileRef = useRef<HTMLInputElement>(null)
+  const linkPdfRef = useRef<HTMLInputElement>(null)
 
   // 仓库内重复链接检测（与首页添加行为一致：仅提示不阻止）
   const [addLinkDups, setAddLinkDups] = useState<any[]>([])
@@ -139,6 +140,8 @@ export default function RepoPage() {
   const [faviconLoading, setFaviconLoading] = useState(false)
   const [linkIconSrc, setLinkIconSrc] = useState<'auto' | 'upload' | 'text'>('auto')
   const [linkAdding, setLinkAdding] = useState(false)
+  const [linkPdf, setLinkPdf] = useState<File | null>(null)
+  const [linkPdfUploading, setLinkPdfUploading] = useState(false)
   const [following, setFollowing] = useState(false)
 
   // Auth modal
@@ -299,8 +302,10 @@ export default function RepoPage() {
     setAddLinkDups([]); setAddLinkDupType('exact')
     setLinkColor(Math.floor(Math.random() * linkPalette.length))
     setFaviconLoading(false)
+    setLinkPdf(null); setLinkPdfUploading(false)
     if (addLinkDupTimer.current) clearTimeout(addLinkDupTimer.current)
     if (linkFileRef.current) linkFileRef.current.value = ''
+    if (linkPdfRef.current) linkPdfRef.current.value = ''
   }
 
   const addLink = async () => {
@@ -315,6 +320,24 @@ export default function RepoPage() {
       showToast(t('链接添加成功'))
     } catch { showToast(t('添加失败'), 'error') }
     finally { setLinkAdding(false) }
+  }
+
+  const handleLinkPdfSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.type !== 'application/pdf') { showToast(t('仅支持 PDF 文件'), 'error'); return }
+    setLinkPdfUploading(true)
+    try {
+      const uploaded = await pdfLinks.upload(file)
+      setLinkPdf(file)
+      setLinkName(linkName || uploaded.filename.replace(/\.pdf$/i, ''))
+      setLinkUrl(`/api/pdfs/${uploaded.id}`)
+    } catch (err: any) {
+      showToast(err.message || t('上传失败'), 'error')
+    } finally {
+      setLinkPdfUploading(false)
+      if (linkPdfRef.current) linkPdfRef.current.value = ''
+    }
   }
 
   const deleteLink = async (linkId: string) => {
@@ -767,6 +790,17 @@ export default function RepoPage() {
                     }).finally(() => setFaviconLoading(false))
                   }
                 }} placeholder={t('地址（https://...）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('上传 PDF（选填）')}</label>
+                <div className="flex items-center gap-2">
+                  <input ref={linkPdfRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleLinkPdfSelect} />
+                  <button type="button" onClick={() => linkPdfRef.current?.click()} disabled={linkPdfUploading}
+                    className="px-3 py-1.5 rounded-xl bg-white/60 border border-white/80 text-xs text-gray-600 hover:bg-white/90 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-1 transition-all">
+                    {linkPdfUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />} {linkPdfUploading ? t('上传中...') : t('选择 PDF')}
+                  </button>
+                  {linkPdf && <span className="text-xs text-gray-500 truncate max-w-[220px]" title={linkPdf.name}>{linkPdf.name}</span>}
+                </div>
               </div>
               {addLinkDups.length > 0 && (
                 <div className="rounded-2xl bg-amber-50/80 border border-amber-200/60 px-3 py-2.5">

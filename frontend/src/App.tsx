@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { useT } from './i18n'
-import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, type WeatherData } from './api'
+import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, pdfLinks, type WeatherData } from './api'
 import { gold } from './api'
 import { categories as defaultCategories, tools as defaultTools } from './data'
 import { useAutoLinkDescription } from './hooks/useAutoLinkDescription'
@@ -17,6 +17,7 @@ import WallpaperManagerModal, { BUILTIN_WALLPAPERS } from './components/Wallpape
 import PanelStyleModal, { UI_FONTS } from './components/PanelStyleModal'
 import CreateRepoModal from './components/CreateRepoModal'
 import WelcomeModal from './components/WelcomeModal'
+import Toast, { showToast } from './components/Toast'
 import CategoryMultiSelect from './components/CategoryMultiSelect'
 import { HomeSkeleton } from './components/Skeleton'
 import {
@@ -31,6 +32,7 @@ import {
   Car, Bike, Map as MapIcon, Building2, Anchor, Utensils, Pill, Stethoscope, Dumbbell, Trophy, Medal, Target, Microscope,
   Atom, Brain, Cat, Dog,
 } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import { CountdownWidgetCard, WidgetResizeHandle } from './components/CountdownWidget'
 import { WereadWidgetCard, WereadSetupModal } from './components/WereadWidget'
 import { ClockWidgetCard } from './components/ClockWidget'
@@ -415,8 +417,11 @@ export default function App() {
   const [addToolDupType, setAddToolDupType] = useState<'exact' | 'domain'>('exact')
   const [addToolIconSrc, setAddToolIconSrc] = useState<'auto' | 'upload' | 'text'>('auto')
   const [addToolRefreshing, setAddToolRefreshing] = useState(false)
+  const [addToolPdf, setAddToolPdf] = useState<File | null>(null)
+  const [addToolPdfUploading, setAddToolPdfUploading] = useState(false)
   const addToolDupTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const addToolFileRef = useRef<HTMLInputElement>(null)
+  const addToolPdfRef = useRef<HTMLInputElement>(null)
   const [editTool, setEditTool] = useState<any>(null)
   const [editToolTextIcon, setEditToolTextIcon] = useState('')
   const editToolFileRef = useRef<HTMLInputElement>(null)
@@ -1287,8 +1292,10 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     setAddToolCatError(''); setAddToolDups([]); setAddToolDupType('exact')
     setAddToolColor(Math.floor(Math.random() * toolPalette.length))
     setAddToolRefreshing(false)
+    setAddToolPdf(null); setAddToolPdfUploading(false)
     if (addToolDupTimer.current) clearTimeout(addToolDupTimer.current)
     if (addToolFileRef.current) addToolFileRef.current.value = ''
+    if (addToolPdfRef.current) addToolPdfRef.current.value = ''
   }
 
   const createTool = async () => {
@@ -1302,6 +1309,24 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     closeAddTool()
     setToolList(prev => [...prev, newTool])
     loadHomeData(true)
+  }
+
+  const handleAddToolPdfSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.type !== 'application/pdf') { showToast(t('仅支持 PDF 文件'), 'error'); return }
+    setAddToolPdfUploading(true)
+    try {
+      const uploaded = await pdfLinks.upload(file)
+      setAddToolPdf(file)
+      setAddToolName(addToolName || uploaded.filename.replace(/\.pdf$/i, ''))
+      setAddToolUrl(`/api/pdfs/${uploaded.id}`)
+    } catch (err: any) {
+      showToast(err.message || t('上传失败'), 'error')
+    } finally {
+      setAddToolPdfUploading(false)
+      if (addToolPdfRef.current) addToolPdfRef.current.value = ''
+    }
   }
 
   const updateTool = async () => {
@@ -2132,6 +2157,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       {/* Modals */}
       <DeadLinksModal open={showDeadLinks} links={deadLinks} busy={removingDead}
         onClose={() => setShowDeadLinks(false)} onRemove={removeDeadLinks} />
+      <Toast />
       {showAuth && <AuthModal initialTab={welcomeAuthTab} initialError={authErrorMsg} onClose={() => { setShowAuth(false); setAuthErrorMsg('') }} />}
       {showWelcome && (
         <WelcomeModal
@@ -2329,6 +2355,17 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 onChange={setAddToolDesc}
                 onFetch={() => fetchAddToolDesc(addToolUrl, true)}
               />
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('上传 PDF（选填）')}</label>
+                <div className="flex items-center gap-2">
+                  <input ref={addToolPdfRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleAddToolPdfSelect} />
+                  <button type="button" onClick={() => addToolPdfRef.current?.click()} disabled={addToolPdfUploading}
+                    className="inline-flex items-center gap-1 rounded-xl border border-white/80 bg-white/60 px-3 py-1.5 text-xs text-gray-600 transition-all hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60">
+                    {addToolPdfUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />} {addToolPdfUploading ? t('上传中...') : t('选择 PDF')}
+                  </button>
+                  {addToolPdf && <span className="max-w-[220px] truncate text-xs text-gray-500" title={addToolPdf.name}>{addToolPdf.name}</span>}
+                </div>
+              </div>
               <input value={addToolPassword} onChange={e => setAddToolPassword(e.target.value)} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               {/* Category selector */}
               <div>

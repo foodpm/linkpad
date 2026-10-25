@@ -224,6 +224,25 @@ export const links = {
   checkDead: (repoId: string) => request(`/api/repos/${repoId}/links/check`, { method: 'POST' }),
 }
 
+// Uploaded PDF links (stored in R2; used by repo and homepage link forms)
+export const pdfLinks = {
+  upload: async (file: File): Promise<{ id: string; filename: string; size: number }> => {
+    const token = getToken()
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch(`${API_BASE}/api/upload/pdf`, {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      body: formData,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: t('上传失败') }))
+      throw new Error(err.error || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+}
+
 // Follows
 export const follows = {
   user: {

@@ -254,6 +254,19 @@ CREATE TABLE IF NOT EXISTS link_category_assignments (
 CREATE INDEX IF NOT EXISTS idx_link_category_assignments_category
   ON link_category_assignments(category_id);
 
+-- Uploaded files used as link targets (currently PDFs stored in R2).
+CREATE TABLE IF NOT EXISTS link_uploads (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  r2_key TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_link_uploads_user ON link_uploads(user_id);
+
 -- Todos
 CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY,
