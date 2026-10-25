@@ -1847,12 +1847,15 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               <h2 className="text-xl font-bold text-white">{t('全部仓库')}</h2>
               <span className="text-xs text-white">{t('社区发布的公开仓库 · 关注仓库后，您的首页将会同步展示仓库链接')}</span>
             </div>
-            <select value={discoverSort} onChange={e => setDiscoverSort(e.target.value)}
-              className="h-9 pl-3.5 pr-8 bg-slate-900/50 border border-white/30 rounded-xl text-xs text-white [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-blue-400/50">
-              <option value="followers" className="bg-slate-900 text-white">{t('关注最多')}</option>
-              <option value="bookmarks" className="bg-slate-900 text-white">{t('收藏最多')}</option>
-              <option value="recent" className="bg-slate-900 text-white">{t('最近更新')}</option>
-            </select>
+            <div className="relative">
+              <select value={discoverSort} onChange={e => setDiscoverSort(e.target.value)}
+                className="h-9 pl-3.5 pr-9 appearance-none bg-slate-900/50 border border-white/30 rounded-xl text-xs text-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400/50">
+                <option value="followers" className="bg-slate-900 text-white">{t('关注最多')}</option>
+                <option value="bookmarks" className="bg-slate-900 text-white">{t('收藏最多')}</option>
+                <option value="recent" className="bg-slate-900 text-white">{t('最近更新')}</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/70" />
+            </div>
           </div>
           <DiscoverRepoGrid repos={sortedRepos} user={user} follows={follows} bookmarks={bookmarks} />
         </SectionPanel>
