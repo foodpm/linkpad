@@ -55,6 +55,8 @@ export const auth = {
 // Activity / browser extension tracking
 export const activity = {
   heartbeat: () => request('/api/activity/heartbeat', { method: 'POST', body: '{}' }),
+  events: (events: Partial<Record<'page_view' | 'scroll' | 'click' | 'search' | 'auth', number>>) =>
+    request('/api/activity/events', { method: 'POST', body: JSON.stringify({ events }) }),
 }
 
 export const extensionTracking = {
@@ -471,6 +473,8 @@ export const admin = {
     users: number
     extensionUsers: number
     extensionInstalls: number
+    today: { uv: number; pv: number }
+    trend: Array<{ date: string; uv: number; pv: number }>
   }>,
   users: {
     list: (params?: { nickname?: string; email?: string; status?: string }) => {

@@ -52,6 +52,8 @@ type ActivityAction =
   | 'bookmark_repo'
   | 'widget_update'
 
+type ActivityEvent = 'page_view' | 'scroll' | 'click' | 'search' | 'auth'
+
 const app = new Hono<{ Bindings: Bindings; Variables: { lang: Lang } }>()
 
 app.onError((err, c) => {
@@ -149,6 +151,40 @@ async function recordActivity(c: any, user: User, action: ActivityAction) {
   } catch (err) {
     // 埋点失败不能影响主业务请求
     console.error('Activity tracking failed:', err)
+  }
+}
+
+// One aggregate row per user per Beijing day keeps UV exact without storing
+// high-volume click/scroll event rows.
+async function recordDailyActivity(
+  db: D1Database,
+  userId: string,
+  event: ActivityEvent,
+  count = 1
+) {
+  const pv = Math.max(1, Math.min(200, Math.trunc(count) || 1))
+  const column = {
+    page_view: 'page_views',
+    scroll: 'scrolls',
+    click: 'clicks',
+    search: 'searches',
+    auth: 'auths',
+  }[event]
+
+  try {
+    await db.prepare(
+      `INSERT INTO user_daily_activity (
+         user_id, activity_date, pv, ${column}, first_seen_at, last_seen_at
+       ) VALUES (?, date('now', '+8 hours'), ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(user_id, activity_date) DO UPDATE SET
+         pv = user_daily_activity.pv + excluded.pv,
+         ${column} = user_daily_activity.${column} + excluded.${column},
+         last_seen_at = datetime('now')`
+    ).bind(userId, pv, pv).run()
+    await markUserActive(db, userId)
+  } catch (err) {
+    // Analytics failures must never break product interactions.
+    console.error('Daily activity tracking failed:', err)
   }
 }
 
@@ -267,7 +303,7 @@ app.post('/api/auth/register', async (c) => {
   await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, nickname) VALUES (?, ?, ?, ?)').bind(id, email, hash, nick).run()
 
   await seedNewUser(c.env.DB, id)
-  await markUserActive(c.env.DB, id)
+  await recordDailyActivity(c.env.DB, id, 'auth')
 
   const token = await signJWT({ sub: id, email }, c.env.JWT_SECRET)
   return c.json({ token, user: { id, email, nickname: nick, avatar_url: '' } })
@@ -284,7 +320,7 @@ app.post('/api/auth/login', async (c) => {
   const hash = await hashPassword(password, c.env.JWT_SECRET)
   if (hash !== user.password_hash) return c.json({ error: T(c, '密码错误') }, 401)
 
-  await markUserActive(c.env.DB, user.id)
+  await recordDailyActivity(c.env.DB, user.id, 'auth')
   const token = await signJWT({ sub: user.id, email: user.email }, c.env.JWT_SECRET)
   return c.json({ token, user: { id: user.id, email: user.email, nickname: user.nickname, avatar_url: user.avatar_url } })
 })
@@ -300,7 +336,25 @@ app.get('/api/auth/me', async (c) => {
 app.post('/api/activity/heartbeat', async (c) => {
   const user = await getUser(c)
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
-  await markUserActive(c.env.DB, user.id)
+  await recordDailyActivity(c.env.DB, user.id, 'page_view')
+  return c.json({ success: true })
+})
+
+app.post('/api/activity/events', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
+
+  const body = await c.req.json().catch(() => ({})) as { events?: Record<string, unknown> }
+  const allowed: ActivityEvent[] = ['page_view', 'scroll', 'click', 'search', 'auth']
+  const counts = allowed.map(event => {
+    const raw = Number(body.events?.[event])
+    return Number.isFinite(raw) ? Math.max(0, Math.min(200, Math.trunc(raw))) : 0
+  })
+
+  if (!counts.some(Boolean)) return c.json({ success: true })
+  await Promise.all(allowed.map((event, i) => (
+    counts[i] ? recordDailyActivity(c.env.DB, user.id, event, counts[i]) : Promise.resolve()
+  )))
   return c.json({ success: true })
 })
 
@@ -511,7 +565,7 @@ app.get('/api/auth/google/callback', async (c) => {
       .bind(userId, email, '', nick, ui.picture || '').run()
     await seedNewUser(c.env.DB, userId)
   }
-  await markUserActive(c.env.DB, userId)
+  await recordDailyActivity(c.env.DB, userId, 'auth')
 
   const user = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url FROM users WHERE id = ?').bind(userId).first()
   const token = await signJWT({ sub: userId, email }, c.env.JWT_SECRET)
@@ -1736,15 +1790,43 @@ app.get('/api/admin/overview', async (c) => {
   const user = await getUser(c)
   if (!user || !isAdmin(c, user)) return c.json({ error: T(c, '无权访问') }, 403)
 
-  const [users, extensionUsers, extensionInstalls] = await Promise.all([
+  const [users, extensionUsers, extensionInstalls, todayActivity, activityTrend] = await Promise.all([
     c.env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<any>(),
     c.env.DB.prepare('SELECT COUNT(DISTINCT user_id) AS n FROM extension_user_installs').first<any>(),
     c.env.DB.prepare('SELECT COUNT(*) AS n FROM extension_installs').first<any>(),
+    c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT user_id) AS uv, COALESCE(SUM(pv), 0) AS pv
+       FROM user_daily_activity
+       WHERE activity_date = date('now', '+8 hours')`
+    ).first<any>(),
+    c.env.DB.prepare(
+      `WITH RECURSIVE days(day) AS (
+         SELECT date('now', '+8 hours', '-6 days')
+         UNION ALL
+         SELECT date(day, '+1 day') FROM days WHERE day < date('now', '+8 hours')
+       )
+       SELECT days.day AS date,
+         COUNT(DISTINCT a.user_id) AS uv,
+         COALESCE(SUM(a.pv), 0) AS pv
+       FROM days
+       LEFT JOIN user_daily_activity a ON a.activity_date = days.day
+       GROUP BY days.day
+       ORDER BY days.day ASC`
+    ).all(),
   ])
   return c.json({
     users: users?.n || 0,
     extensionUsers: extensionUsers?.n || 0,
     extensionInstalls: extensionInstalls?.n || 0,
+    today: {
+      uv: todayActivity?.uv || 0,
+      pv: todayActivity?.pv || 0,
+    },
+    trend: (activityTrend.results as any[]).map(row => ({
+      date: row.date,
+      uv: row.uv || 0,
+      pv: row.pv || 0,
+    })),
   })
 })
 
@@ -1879,6 +1961,7 @@ async function deleteUserData(db: D1Database, userId: string) {
   await db.prepare('DELETE FROM user_hidden_categories WHERE user_id = ?').bind(userId).run()
   await db.prepare('DELETE FROM user_hidden_tools WHERE user_id = ?').bind(userId).run()
   await db.prepare('DELETE FROM extension_user_installs WHERE user_id = ?').bind(userId).run()
+  await db.prepare('DELETE FROM user_daily_activity WHERE user_id = ?').bind(userId).run()
 }
 
 app.delete('/api/admin/users/:id', async (c) => {

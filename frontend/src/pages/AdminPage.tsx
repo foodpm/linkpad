@@ -97,7 +97,13 @@ export default function AdminPage() {
   const [reposLoading, setReposLoading] = useState(false)
 
   // User metrics: total users + extension usage (independent of the paginated list)
-  const [overview, setOverview] = useState<{ users: number; extensionUsers: number; extensionInstalls: number } | null>(null)
+  const [overview, setOverview] = useState<{
+    users: number
+    extensionUsers: number
+    extensionInstalls: number
+    today: { uv: number; pv: number }
+    trend: Array<{ date: string; uv: number; pv: number }>
+  } | null>(null)
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null)
@@ -399,10 +405,18 @@ export default function AdminPage() {
           {/* ==================== USERS SECTION ==================== */}
           {section === 'users' && (
             <div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
                 <div className="bg-white rounded-xl border border-[#e5e7eb] px-5 py-4">
                   <p className="text-xs text-gray-400">{t('用户总数')}</p>
                   <p className="mt-1 text-2xl font-semibold text-gray-800">{overview?.users ?? '-'}</p>
+                </div>
+                <div className="bg-white rounded-xl border border-[#e5e7eb] px-5 py-4">
+                  <p className="text-xs text-gray-400">{t('今日活跃用户 UV')}</p>
+                  <p className="mt-1 text-2xl font-semibold text-blue-600">{overview?.today.uv ?? '-'}</p>
+                </div>
+                <div className="bg-white rounded-xl border border-[#e5e7eb] px-5 py-4">
+                  <p className="text-xs text-gray-400">{t('今日活跃 PV')}</p>
+                  <p className="mt-1 text-2xl font-semibold text-blue-600">{overview?.today.pv ?? '-'}</p>
                 </div>
                 <div className="bg-white rounded-xl border border-[#e5e7eb] px-5 py-4">
                   <p className="text-xs text-gray-400">{t('使用插件的用户')}</p>
@@ -413,6 +427,31 @@ export default function AdminPage() {
                   <p className="mt-1 text-2xl font-semibold text-gray-800">{overview?.extensionInstalls ?? '-'}</p>
                 </div>
               </div>
+              {overview?.trend.length ? (
+                <div className="bg-white rounded-xl border border-[#e5e7eb] px-5 py-4 mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-semibold text-gray-800">{t('近 7 天活跃趋势')}</h2>
+                    <div className="flex items-center gap-3 text-xs text-gray-400">
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />{t('UV')}</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-300" />{t('PV')}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-end gap-2 h-28">
+                    {overview.trend.map(day => {
+                      const max = Math.max(1, ...overview.trend.flatMap(d => [d.uv, d.pv]))
+                      return (
+                        <div key={day.date} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full gap-1" title={`${day.date} · UV ${day.uv} · PV ${day.pv}`}>
+                          <div className="w-full flex items-end justify-center gap-0.5 flex-1">
+                            <div className="w-2.5 bg-blue-500 rounded-t" style={{ height: `${Math.max(day.uv ? 4 : 0, day.uv / max * 100)}%` }} />
+                            <div className="w-2.5 bg-sky-300 rounded-t" style={{ height: `${Math.max(day.pv ? 4 : 0, day.pv / max * 100)}%` }} />
+                          </div>
+                          <span className="text-[10px] text-gray-400 whitespace-nowrap">{day.date.slice(5)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
               <div className="bg-white rounded-xl border border-[#e5e7eb] overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#f0f0f0]">
                 <h2 className="font-semibold text-gray-800">{t('用户列表')} <span className="text-gray-400 font-normal text-sm ml-1">({userList.length})</span></h2>

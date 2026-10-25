@@ -8,6 +8,7 @@ import RepoPage from './pages/RepoPage'
 import UserPage from './pages/UserPage'
 import AdminPage from './pages/AdminPage'
 import ExtensionBridge from './components/ExtensionBridge'
+import ActivityTracker from './components/ActivityTracker'
 import './index.css'
 
 // Chrome Web Store 安装版会把 install_id 放在 hash 中（URL fragment 不会发送到服务端）
@@ -18,6 +19,7 @@ createRoot(document.getElementById('root')!).render(
     <I18nProvider>
       <BrowserRouter>
         <AuthProvider>
+          <ActivityTracker />
           <ExtensionBridge installId={extensionInstallId} />
           <Routes>
             <Route path="/" element={<App />} />
