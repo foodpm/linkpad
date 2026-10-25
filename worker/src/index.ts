@@ -146,7 +146,7 @@ async function getRepoCategoryIds(db: D1Database, repoId: string, linkIds: strin
   // D1 rejects large statements once the bound-variable count crosses its
   // internal limit (reproducible at ~100 links), so query assignments in
   // chunks rather than joining by every link ID in one statement.
-  const chunkSize = 100
+  const chunkSize = 99
   for (let i = 0; i < linkIds.length; i += chunkSize) {
     const chunk = linkIds.slice(i, i + chunkSize)
     const placeholders = chunk.map(() => '?').join(',')
