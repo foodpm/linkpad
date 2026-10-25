@@ -48,9 +48,14 @@
   --font-sans: var(--app-font, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
 }
 
-/* 原生下拉框的系统箭头不要贴住右边缘；自定义箭头的 appearance-none 下拉不处理。 */
+/* 用自绘箭头替换原生下拉箭头，并让它与右边缘保持稳定间距。 */
 select:not(.appearance-none) {
-  padding-right: 2.25rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 0.875rem center;
+  background-repeat: no-repeat;
+  background-size: 1rem 1rem;
+  padding-right: 2.625rem;
 }
 
 /* ---------- 子分类标题竖杠：纯白 ---------- */
