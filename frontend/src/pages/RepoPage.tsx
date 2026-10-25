@@ -144,6 +144,7 @@ export default function RepoPage() {
   const [linkPdf, setLinkPdf] = useState<File | null>(null)
   const [linkType, setLinkType] = useState<'url' | 'pdf'>('url')
   const [linkPdfUploading, setLinkPdfUploading] = useState(false)
+  const [linkPdfError, setLinkPdfError] = useState('')
   const [following, setFollowing] = useState(false)
 
   // Auth modal
@@ -306,6 +307,7 @@ export default function RepoPage() {
     setLinkColor(Math.floor(Math.random() * linkPalette.length))
     setFaviconLoading(false)
     setLinkPdf(null); setLinkPdfUploading(false)
+    setLinkPdfError('')
     if (addLinkDupTimer.current) clearTimeout(addLinkDupTimer.current)
     if (linkFileRef.current) linkFileRef.current.value = ''
     if (linkPdfRef.current) linkPdfRef.current.value = ''
@@ -328,7 +330,8 @@ export default function RepoPage() {
   const handleLinkPdfSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.type !== 'application/pdf') { showToast(t('仅支持 PDF 文件'), 'error'); return }
+    setLinkPdfError('')
+    if (file.type !== 'application/pdf') { setLinkPdfError(t('仅支持 PDF 文件')); return }
     setLinkPdfUploading(true)
     try {
       const uploaded = await pdfLinks.upload(file)
@@ -336,7 +339,7 @@ export default function RepoPage() {
       setLinkName(linkName || uploaded.filename.replace(/\.pdf$/i, ''))
       setLinkUrl(`/api/pdfs/${uploaded.id}`)
     } catch (err: any) {
-      showToast(err.message || t('上传失败'), 'error')
+      setLinkPdfError(err.message || t('上传失败'))
     } finally {
       setLinkPdfUploading(false)
       if (linkPdfRef.current) linkPdfRef.current.value = ''
@@ -796,6 +799,7 @@ export default function RepoPage() {
                     </>
                   )}
                 </div>
+                {linkPdfError && <p className="mt-1 text-xs text-red-500">{linkPdfError}</p>}
               </div>
               ) : (
               <div>

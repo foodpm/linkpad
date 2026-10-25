@@ -421,6 +421,7 @@ export default function App() {
   const [addToolPdf, setAddToolPdf] = useState<File | null>(null)
   const [addToolType, setAddToolType] = useState<'url' | 'pdf'>('url')
   const [addToolPdfUploading, setAddToolPdfUploading] = useState(false)
+  const [addToolPdfError, setAddToolPdfError] = useState('')
   const addToolDupTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const addToolFileRef = useRef<HTMLInputElement>(null)
   const addToolPdfRef = useRef<HTMLInputElement>(null)
@@ -1290,6 +1291,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     setShowAddTool(false)
     setAddToolName(''); setAddToolUrl(''); setAddToolPassword(''); setAddToolCats([])
     setAddToolType('url')
+    setAddToolPdfError('')
     resetAddToolDesc()
     setAddToolIcon(''); setAddToolTextIcon(''); setAddToolIconSrc('auto')
     setAddToolCatError(''); setAddToolDups([]); setAddToolDupType('exact')
@@ -1317,7 +1319,8 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
   const handleAddToolPdfSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.type !== 'application/pdf') { showToast(t('仅支持 PDF 文件'), 'error'); return }
+    setAddToolPdfError('')
+    if (file.type !== 'application/pdf') { setAddToolPdfError(t('仅支持 PDF 文件')); return }
     setAddToolPdfUploading(true)
     try {
       const uploaded = await pdfLinks.upload(file)
@@ -1325,7 +1328,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       setAddToolName(addToolName || uploaded.filename.replace(/\.pdf$/i, ''))
       setAddToolUrl(`/api/pdfs/${uploaded.id}`)
     } catch (err: any) {
-      showToast(err.message || t('上传失败'), 'error')
+      setAddToolPdfError(err.message || t('上传失败'))
     } finally {
       setAddToolPdfUploading(false)
       if (addToolPdfRef.current) addToolPdfRef.current.value = ''
@@ -2336,6 +2339,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                     </>
                   )}
                 </div>
+                {addToolPdfError && <p className="mt-1 text-xs text-red-500">{addToolPdfError}</p>}
               </div>
               ) : (
               <div>
