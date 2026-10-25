@@ -46,6 +46,7 @@ type ActivityAction =
   | 'category_update'
   | 'link_create'
   | 'link_update'
+  | 'link_move'
   | 'link_click'
   | 'follow_user'
   | 'follow_repo'
@@ -127,6 +128,41 @@ async function getUser(c: any): Promise<User | null> {
 
 function isAdmin(c: any, user: User | null): boolean {
   return user?.email === c.env.ADMIN_EMAIL
+}
+
+// A link can belong to several categories; table storage is id-based, while
+// repo category storage remains name-based for compatibility with old data.
+function normalizeCategoryIds(input: any): string[] {
+  if (Array.isArray(input)) return [...new Set(input.map((v: any) => String(v)).filter(Boolean))]
+  if (typeof input === 'string') return input ? [input] : []
+  return []
+}
+
+// Resolve every repo category a link belongs to. `category_id` remains the
+// primary category for sorting, duplicate display and older clients.
+async function getRepoCategoryIds(db: D1Database, repoId: string, linkIds: string[]): Promise<Record<string, string[]>> {
+  const map: Record<string, string[]> = {}
+  if (linkIds.length === 0) return map
+  const placeholders = linkIds.map(() => '?').join(',')
+  const { results } = await db.prepare(
+    `SELECT a.link_id, a.category_id, a.sort_order
+     FROM link_category_assignments a
+     JOIN repo_links l ON l.id = a.link_id
+     WHERE l.repo_id = ? AND a.link_id IN (${placeholders})
+     ORDER BY a.sort_order ASC, a.rowid ASC`
+  ).bind(repoId, ...linkIds).all()
+  for (const row of (results || []) as any[]) {
+    (map[row.link_id] ||= []).push(row.category_id)
+  }
+  return map
+}
+
+async function replaceRepoCategoryAssignments(db: D1Database, linkId: string, categories: string[]) {
+  await db.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(linkId).run()
+  if (categories.length === 0) return
+  await db.batch(categories.map((category, index) => db.prepare(
+    'INSERT INTO link_category_assignments (link_id, category_id, sort_order) VALUES (?, ?, ?)'
+  ).bind(linkId, category, index)))
 }
 
 // “有动作”统一以服务端成功写入的时间为准。只记录第一次活跃，后续只刷新最近活跃。
@@ -970,6 +1006,9 @@ app.delete('/api/repos/:id', async (c) => {
 
   // Cascade delete
   await c.env.DB.prepare('DELETE FROM repo_links WHERE repo_id = ?').bind(id).run()
+  await c.env.DB.prepare(
+    'DELETE FROM link_category_assignments WHERE link_id IN (SELECT id FROM repo_links WHERE repo_id = ?)'
+  ).bind(id).run()
   await c.env.DB.prepare('DELETE FROM repo_categories WHERE repo_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM repo_members WHERE repo_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM repo_follows WHERE repo_id = ?').bind(id).run()
@@ -985,7 +1024,8 @@ app.delete('/api/repos/:id', async (c) => {
 app.get('/api/repos/:id/links', async (c) => {
   const id = c.req.param('id')
   const { results } = await c.env.DB.prepare('SELECT * FROM repo_links WHERE repo_id = ? ORDER BY sort_order ASC, created_at ASC').bind(id).all()
-  return c.json(results)
+  const catMap = await getRepoCategoryIds(c.env.DB, id, (results || []).map((r: any) => r.id))
+  return c.json((results || []).map((link: any) => ({ ...link, category_ids: catMap[link.id] || [link.category_id].filter(Boolean) })))
 })
 
 // 检测仓库内是否已存在相同链接：精确匹配（忽略协议/大小写/末尾斜杠）优先，无精确命中时按同域名兜底（忽略路径）；exclude 用于编辑时排除自身
@@ -1018,9 +1058,9 @@ app.post('/api/repos/:id/links', async (c) => {
   if (!name || !url) return c.json({ error: T(c, '名称和地址不能为空') }, 400)
 
   // 分类多选：仓库 category_id 存分类名；兼容旧的单选参数
-  const requestedCats = Array.isArray(category_ids)
-    ? category_ids.map((v: any) => String(v)).filter(Boolean)
-    : category_id ? [String(category_id)] : []
+  const requestedCats = normalizeCategoryIds(category_ids)
+    .concat(category_id && !Array.isArray(category_ids) ? [String(category_id)] : [])
+    .filter((cat, index, list) => list.indexOf(cat) === index)
   const { results: repoCatRows } = await c.env.DB.prepare('SELECT name FROM repo_categories WHERE repo_id = ? ORDER BY sort_order ASC').bind(repoId).all()
   const repoCatNames = (repoCatRows || []).map((r: any) => r.name)
   const selectedCats = requestedCats.filter(cat => repoCatNames.includes(cat))
@@ -1033,6 +1073,7 @@ app.post('/api/repos/:id/links', async (c) => {
   await c.env.DB.prepare(
     'INSERT INTO repo_links (id, repo_id, category_id, name, url, icon, sort_order, desc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(linkId, repoId, firstCat, name, url, linkIcon, (maxOrder?.max ?? -1) + 1, desc || '').run()
+  await replaceRepoCategoryAssignments(c.env.DB, linkId, selectedCats)
 
   await c.env.DB.prepare('UPDATE repositories SET link_count = (SELECT COUNT(*) FROM repo_links WHERE repo_id = ?), updated_at = datetime(\'now\') WHERE id = ?').bind(repoId, repoId).run()
 
@@ -1056,13 +1097,24 @@ app.put('/api/links/:id', async (c) => {
   if (!link) return c.json({ error: T(c, '链接不存在') }, 404)
   if (!(await canManageRepo(c, link.repo_id))) return c.json({ error: T(c, '无权修改') }, 403)
 
-  const { name, url, icon, category_id, bg_color, text_color, desc } = await c.req.json()
+  const { name, url, icon, category_id, category_ids, bg_color, text_color, desc } = await c.req.json()
   if (name !== undefined) await c.env.DB.prepare('UPDATE repo_links SET name = ? WHERE id = ?').bind(name, id).run()
   if (url !== undefined) await c.env.DB.prepare('UPDATE repo_links SET url = ?, link_status = \'\', last_checked_at = 0, fail_count = 0, last_http_status = 0 WHERE id = ?').bind(url, id).run()
   // URL 变更时后台预热新地址的预览截图（不阻塞响应）
   if (url !== undefined) c.executionCtx.waitUntil(preCapture(c.env, url))
   if (icon !== undefined) await c.env.DB.prepare('UPDATE repo_links SET icon = ? WHERE id = ?').bind(icon, id).run()
-  if (category_id !== undefined) await c.env.DB.prepare('UPDATE repo_links SET category_id = ? WHERE id = ?').bind(category_id, id).run()
+  const requestedCategoryNames = normalizeCategoryIds(category_ids)
+    .concat(category_id !== undefined && !Array.isArray(category_ids) ? [String(category_id)] : [])
+    .filter((cat, index, list) => list.indexOf(cat) === index)
+  if (category_ids !== undefined || category_id !== undefined) {
+    const { results: repoCatRows } = await c.env.DB.prepare('SELECT name FROM repo_categories WHERE repo_id = ?').bind(link.repo_id).all()
+    const repoCatNames = (repoCatRows || []).map((r: any) => r.name)
+    const selectedCats = requestedCategoryNames.filter(cat => repoCatNames.includes(cat))
+    if (category_ids !== undefined || selectedCats.length > 0) {
+      await c.env.DB.prepare('UPDATE repo_links SET category_id = ? WHERE id = ?').bind(selectedCats[0] || '', id).run()
+      await replaceRepoCategoryAssignments(c.env.DB, id, selectedCats)
+    }
+  }
   if (bg_color !== undefined) await c.env.DB.prepare('UPDATE repo_links SET bg_color = ? WHERE id = ?').bind(bg_color, id).run()
   if (text_color !== undefined) await c.env.DB.prepare('UPDATE repo_links SET text_color = ? WHERE id = ?').bind(text_color, id).run()
   if (desc !== undefined) await c.env.DB.prepare('UPDATE repo_links SET desc = ? WHERE id = ?').bind(desc, id).run()
@@ -1088,6 +1140,7 @@ app.delete('/api/links/:id', async (c) => {
   if (!link) return c.json({ error: T(c, '链接不存在') }, 404)
   if (!(await canManageRepo(c, link.repo_id))) return c.json({ error: T(c, '无权删除') }, 403)
 
+  await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM repo_links WHERE id = ?').bind(id).run()
   await c.env.DB.prepare('UPDATE repositories SET link_count = (SELECT COUNT(*) FROM repo_links WHERE repo_id = ?), updated_at = datetime(\'now\') WHERE id = ?').bind(link.repo_id, link.repo_id).run()
 
@@ -1158,6 +1211,9 @@ app.delete('/api/repos/:id/categories/:name', async (c) => {
 
   await c.env.DB.prepare('DELETE FROM repo_categories WHERE repo_id = ? AND name = ?').bind(repoId, catName).run()
   await c.env.DB.prepare('UPDATE repo_links SET category_id = \'\' WHERE repo_id = ? AND category_id = ?').bind(repoId, catName).run()
+  await c.env.DB.prepare(
+    'DELETE FROM link_category_assignments WHERE category_id = ? AND link_id IN (SELECT id FROM repo_links WHERE repo_id = ?)'
+  ).bind(catName, repoId).run()
   await recordActivity(c, user, 'category_update')
   return c.json({ success: true })
 })
@@ -1207,6 +1263,9 @@ app.put('/api/repos/:id/categories/:name', async (c) => {
   if (repo.user_id !== user.id) return c.json({ error: T(c, '无权修改') }, 403)
   await c.env.DB.prepare('UPDATE repo_categories SET name = ? WHERE repo_id = ? AND name = ?').bind(newName.trim(), repoId, oldName).run()
   await c.env.DB.prepare('UPDATE repo_links SET category_id = ? WHERE repo_id = ? AND category_id = ?').bind(newName.trim(), repoId, oldName).run()
+  await c.env.DB.prepare(
+    'UPDATE link_category_assignments SET category_id = ? WHERE category_id = ? AND link_id IN (SELECT id FROM repo_links WHERE repo_id = ?)'
+  ).bind(newName.trim(), oldName, repoId).run()
   
   // Sync category rename to followers
   const followers = await c.env.DB.prepare('SELECT user_id, target_category_id FROM repo_follows WHERE repo_id = ? AND target_category_id != \'\'').bind(repoId).all()
@@ -1938,6 +1997,9 @@ async function deleteUserData(db: D1Database, userId: string) {
   for (const repo of (ownedRepos as any[])) {
     const repoId = repo.id
     await db.prepare('DELETE FROM repo_links WHERE repo_id = ?').bind(repoId).run()
+    await db.prepare(
+      'DELETE FROM link_category_assignments WHERE link_id IN (SELECT id FROM repo_links WHERE repo_id = ?)'
+    ).bind(repoId).run()
     await db.prepare('DELETE FROM repo_categories WHERE repo_id = ?').bind(repoId).run()
     await db.prepare('DELETE FROM repo_members WHERE repo_id = ?').bind(repoId).run()
     await db.prepare('DELETE FROM repo_follows WHERE repo_id = ?').bind(repoId).run()
@@ -1990,6 +2052,9 @@ app.delete('/api/admin/repos/:id', async (c) => {
   if (!user || !isAdmin(c, user)) return c.json({ error: T(c, '无权访问') }, 403)
   const repoId = c.req.param('id')
   await c.env.DB.prepare('DELETE FROM repo_links WHERE repo_id = ?').bind(repoId).run()
+  await c.env.DB.prepare(
+    'DELETE FROM link_category_assignments WHERE link_id IN (SELECT id FROM repo_links WHERE repo_id = ?)'
+  ).bind(repoId).run()
   await c.env.DB.prepare('DELETE FROM repo_categories WHERE repo_id = ?').bind(repoId).run()
   await c.env.DB.prepare('DELETE FROM repo_members WHERE repo_id = ?').bind(repoId).run()
   await c.env.DB.prepare('DELETE FROM repo_follows WHERE repo_id = ?').bind(repoId).run()
@@ -2120,6 +2185,7 @@ app.delete('/api/categories/:id', async (c) => {
 
   // 直接删除用户自己的分类和里面的链接
   await c.env.DB.prepare('DELETE FROM user_tools WHERE category_id = ? AND user_id = ?').bind(id, user.id).run()
+  await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE category_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM user_categories WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true })
 })
@@ -2195,6 +2261,36 @@ app.get('/api/tools', async (c) => {
   return c.json(results)
 })
 
+// Resolve every category a homepage link belongs to. The primary category is
+// kept on user_tools for existing queries and old clients.
+async function getHomeCategoryIds(db: D1Database, linkIds: string[]): Promise<Record<string, string[]>> {
+  const map: Record<string, string[]> = {}
+  if (linkIds.length === 0) return map
+  const placeholders = linkIds.map(() => '?').join(',')
+  const { results } = await db.prepare(
+    `SELECT link_id, category_id FROM link_category_assignments
+     WHERE link_id IN (${placeholders}) ORDER BY sort_order ASC, rowid ASC`
+  ).bind(...linkIds).all()
+  for (const row of (results || []) as any[]) {
+    (map[row.link_id] ||= []).push(row.category_id)
+  }
+  return map
+}
+
+async function replaceHomeCategoryAssignments(
+  db: D1Database,
+  linkId: string,
+  categoryIds: string[],
+  insertFirst: boolean
+) {
+  await db.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(linkId).run()
+  const orderedIds = insertFirst ? categoryIds : [...categoryIds]
+  if (orderedIds.length === 0) return
+  await db.batch(orderedIds.map((categoryId, index) => db.prepare(
+    'INSERT INTO link_category_assignments (link_id, category_id, sort_order) VALUES (?, ?, ?)'
+  ).bind(linkId, categoryId, index)))
+}
+
 // 检测首页是否已存在相同链接：精确匹配（忽略协议/大小写/末尾斜杠）优先，无精确命中时按同域名兜底（忽略路径），返回重复项及其所在分类
 // GitHub 链接不做同域名兜底：不同路径代表不同仓库
 app.get('/api/tools/duplicates', async (c) => {
@@ -2227,7 +2323,7 @@ app.get('/api/tools/duplicates', async (c) => {
 app.post('/api/tools', async (c) => {
   const user = await getUser(c)
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
-  const { name, url, desc, category_id, icon, bg_color, text_color, password } = await c.req.json()
+  const { name, url, desc, category_id, category_ids, icon, bg_color, text_color, password } = await c.req.json()
   if (!name || !url) return c.json({ error: T(c, '名称和地址不能为空') }, 400)
   const id = crypto.randomUUID()
   const isAdminView = c.req.query('admin') === 'true'
@@ -2243,8 +2339,10 @@ app.post('/api/tools', async (c) => {
   }
 
   // Normal user OR admin without admin=true: create personal tool
-  const maxOrder = await c.env.DB.prepare('SELECT MAX(sort_order) as max FROM user_tools WHERE user_id = ? AND category_id = ?').bind(user.id, category_id || '').first() as any
-  await c.env.DB.prepare('INSERT INTO user_tools (id, user_id, name, url, desc, category_id, icon, bg_color, text_color, sort_order, viewed, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)').bind(id, user.id, name, url, desc || '', category_id || '', icon || '', bg_color || '', text_color || '', (maxOrder?.max ?? -1) + 1, password || '').run()
+  const primaryCategoryId = normalizeCategoryIds(category_ids)[0] || category_id || ''
+  const maxOrder = await c.env.DB.prepare('SELECT MAX(sort_order) as max FROM user_tools WHERE user_id = ? AND category_id = ?').bind(user.id, primaryCategoryId).first() as any
+  await c.env.DB.prepare('INSERT INTO user_tools (id, user_id, name, url, desc, category_id, icon, bg_color, text_color, sort_order, viewed, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)').bind(id, user.id, name, url, desc || '', primaryCategoryId, icon || '', bg_color || '', text_color || '', (maxOrder?.max ?? -1) + 1, password || '').run()
+  await replaceHomeCategoryAssignments(c.env.DB, id, normalizeCategoryIds(category_ids), false)
   await recordActivity(c, user, 'link_create')
   const tool = await c.env.DB.prepare('SELECT * FROM user_tools WHERE id = ?').bind(id).first()
   // 后台预热该链接的悬停预览截图（不阻塞响应）
@@ -2281,7 +2379,7 @@ app.put('/api/tools/:id', async (c) => {
   const user = await getUser(c)
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const id = c.req.param('id')
-  const { name, url, desc, category_id, icon, bg_color, text_color, password } = await c.req.json()
+  const { name, url, desc, category_id, category_ids, icon, bg_color, text_color, password } = await c.req.json()
   const isAdminView = c.req.query('admin') === 'true'
 
   if (isAdmin(c, user) && isAdminView) {
@@ -2305,7 +2403,10 @@ app.put('/api/tools/:id', async (c) => {
   // URL 变更时后台预热新地址的预览截图（不阻塞响应）
   if (url !== undefined) c.executionCtx.waitUntil(preCapture(c.env, url))
   if (desc !== undefined) await c.env.DB.prepare('UPDATE user_tools SET desc = ? WHERE id = ? AND user_id = ?').bind(desc, id, user.id).run()
-  if (category_id !== undefined) await c.env.DB.prepare('UPDATE user_tools SET category_id = ? WHERE id = ? AND user_id = ?').bind(category_id, id, user.id).run()
+  const requestedCategoryIds = normalizeCategoryIds(category_ids)
+  const primaryCategoryId = requestedCategoryIds[0] || category_id
+  if (primaryCategoryId !== undefined) await c.env.DB.prepare('UPDATE user_tools SET category_id = ? WHERE id = ? AND user_id = ?').bind(primaryCategoryId, id, user.id).run()
+  if (category_ids !== undefined) await replaceHomeCategoryAssignments(c.env.DB, id, requestedCategoryIds, false)
   if (icon !== undefined) await c.env.DB.prepare('UPDATE user_tools SET icon = ? WHERE id = ? AND user_id = ?').bind(icon, id, user.id).run()
   if (bg_color !== undefined) await c.env.DB.prepare('UPDATE user_tools SET bg_color = ? WHERE id = ? AND user_id = ?').bind(bg_color, id, user.id).run()
   if (text_color !== undefined) await c.env.DB.prepare('UPDATE user_tools SET text_color = ? WHERE id = ? AND user_id = ?').bind(text_color, id, user.id).run()
@@ -2331,6 +2432,7 @@ app.delete('/api/tools/:id', async (c) => {
 
   // 直接删除用户自己的工具
   await c.env.DB.prepare('DELETE FROM user_tools WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+  await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(id).run()
   return c.json({ success: true })
 })
 

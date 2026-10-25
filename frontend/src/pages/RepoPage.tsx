@@ -9,6 +9,7 @@ import AuthModal from '../components/AuthModal'
 import DeadLinksModal from '../components/DeadLinksModal'
 import LinkPreviewHost, { scheduleLinkPreview, cancelLinkPreview } from '../components/LinkPreview'
 import LinkDescriptionInput from '../components/LinkDescriptionInput'
+import CategoryMultiSelect from '../components/CategoryMultiSelect'
 import { RepoPageSkeleton } from '../components/Skeleton'
 import { useT } from '../i18n'
 import { useAutoLinkDescription } from '../hooks/useAutoLinkDescription'
@@ -332,7 +333,7 @@ export default function RepoPage() {
 
   const updateLink = async () => {
     if (!editLink) return
-    await links.update(editLink.id, { name: editLink.name, url: editLink.url, icon: editLink.icon, category_id: editLink.category_id, bg_color: editLink.bg_color, text_color: editLink.text_color, desc: editLink.desc })
+    await links.update(editLink.id, { name: editLink.name, url: editLink.url, icon: editLink.icon, category_ids: editLink.category_ids, bg_color: editLink.bg_color, text_color: editLink.text_color, desc: editLink.desc })
     setLinkList(await repos.links.list(id!))
     setEditLink(null); setEditLinkDups([])
   }
@@ -797,17 +798,13 @@ export default function RepoPage() {
               {linkCategories.length > 0 && (
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('分类（可多选）')}</label>
-                  <div className="flex flex-wrap gap-2 min-h-11 px-2 py-2 bg-white/60 border border-white/80 rounded-2xl">
-                    {linkCategories.map((c: string) => {
-                      const selected = linkCategory.includes(c)
-                      return (
-                        <button key={c} type="button" onClick={() => setLinkCategory(selected ? linkCategory.filter(x => x !== c) : [...linkCategory, c])}
-                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${selected ? 'bg-blue-500 text-white' : 'bg-white/60 text-gray-600 hover:bg-white/90 border border-white/80'}`}>
-                          {c}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <CategoryMultiSelect
+                    options={linkCategories.map((c: string) => ({ id: c, label: c }))}
+                    selected={linkCategory}
+                    onToggle={(cat) => setLinkCategory(linkCategory.includes(cat)
+                      ? linkCategory.filter(x => x !== cat)
+                      : [...linkCategory, cat])}
+                  />
                 </div>
               )}
               {/* 图标来源 */}
@@ -953,9 +950,22 @@ export default function RepoPage() {
               )}
               <input value={editLink.desc || ''} onChange={e => setEditLink({ ...editLink, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               {linkCategories.length > 0 && (
-                <select value={editLink.category_id || linkCategories[0]} onChange={e => setEditLink({ ...editLink, category_id: e.target.value })} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
-                  {linkCategories.map((c: string) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('分类（可多选）')}</label>
+                  <CategoryMultiSelect
+                    options={linkCategories.map((c: string) => ({ id: c, label: c }))}
+                    selected={editLink.category_ids || [editLink.category_id].filter(Boolean)}
+                    onToggle={(cat) => {
+                      const selected = editLink.category_ids || [editLink.category_id].filter(Boolean)
+                      setEditLink({
+                        ...editLink,
+                        category_ids: selected.includes(cat)
+                          ? selected.filter((x: string) => x !== cat)
+                          : [...selected, cat],
+                      })
+                    }}
+                  />
+                </div>
               )}
               <div className="flex gap-2">
                 <button onClick={() => { setEditLink(null); setEditLinkDups([]) }} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>

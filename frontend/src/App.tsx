@@ -17,6 +17,7 @@ import WallpaperManagerModal, { BUILTIN_WALLPAPERS } from './components/Wallpape
 import PanelStyleModal, { UI_FONTS } from './components/PanelStyleModal'
 import CreateRepoModal from './components/CreateRepoModal'
 import WelcomeModal from './components/WelcomeModal'
+import CategoryMultiSelect from './components/CategoryMultiSelect'
 import { HomeSkeleton } from './components/Skeleton'
 import {
  Search, Menu, X, Home, Heart, Compass, ChevronDown, Star, User, Plus, Box, Globe,
@@ -394,7 +395,7 @@ export default function App() {
 
   // Home page tool state
   const [showAddTool, setShowAddTool] = useState(false)
-  const [addToolCat, setAddToolCat] = useState('')
+  const [addToolCats, setAddToolCats] = useState<string[]>([])
   const [addToolName, setAddToolName] = useState('')
   const [addToolUrl, setAddToolUrl] = useState('')
   const {
@@ -816,10 +817,20 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
       swrApply('home:cats', cachedCats, data, (d) => setCategoryList(applyCatsData(d)))
     }).catch(() => { if (!cachedCats) setCategoryList(applyCatsData(null)) })
     const toolTask = (!force && cachedTools?.fresh) ? Promise.resolve() : tools.list().then(data => {
-      swrApply('home:tools', cachedTools, data, applyTools)
+      swrApply('home:tools', cachedTools, data, (d) => applyTools((d || []).map((tool: any) => ({
+        ...tool,
+        category_ids: Array.isArray(tool.category_ids)
+          ? tool.category_ids.filter(Boolean)
+          : [tool.category_id].filter(Boolean),
+      }))))
     }).catch(() => { if (!cachedTools) applyTools(null) })
     Promise.all([catTask, toolTask]).finally(() => setHomeLoading(false))
   }, [])
+
+  const homeCategoryOptions = useMemo(() => categoryList.map((cat: any) => {
+    const parent = categoryList.find((c: any) => c.id === cat.parent_id)
+    return { id: cat.id, label: parent ? `${t(parent.name)} > ${t(cat.name)}` : t(cat.name) }
+  }), [categoryList])
 
   useEffect(() => {
     loadHomeData()
@@ -1257,10 +1268,20 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     if (activeCategory === id) setActiveCategory('all')
   }
 
+  const normalizeToolCategories = (tool: any) => {
+    if (!tool) return tool
+    return {
+      ...tool,
+      category_ids: Array.isArray(tool.category_ids)
+        ? tool.category_ids.filter(Boolean)
+        : [tool.category_id].filter(Boolean),
+    }
+  }
+
   // 关闭添加链接弹窗：未完成添加不保留，清空全部输入状态
   const closeAddTool = () => {
     setShowAddTool(false)
-    setAddToolName(''); setAddToolUrl(''); setAddToolPassword(''); setAddToolCat('')
+    setAddToolName(''); setAddToolUrl(''); setAddToolPassword(''); setAddToolCats([])
     resetAddToolDesc()
     setAddToolIcon(''); setAddToolTextIcon(''); setAddToolIconSrc('auto')
     setAddToolCatError(''); setAddToolDups([]); setAddToolDupType('exact')
@@ -1272,12 +1293,12 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
   const createTool = async () => {
     if (!addToolName.trim() || !addToolUrl.trim()) return
-    if (!addToolCat) { setAddToolCatError(t('请填写分类')); return }
+    if (addToolCats.length === 0) { setAddToolCatError(t('请填写分类')); return }
     setAddToolCatError('')
     const colors = toolPalette[addToolColor]
     // 图标获取失败时兜底：截取名称前 4 个字符作为文字图标
     const icon = isImageIcon(addToolIcon) ? addToolIcon : (addToolTextIcon || addToolName.slice(0, 4))
-    const newTool = await tools.create({ name: addToolName, url: addToolUrl, desc: addToolDesc, category_id: addToolCat || undefined, icon, bg_color: colors.bg, text_color: colors.text, password: addToolPassword || undefined })
+    const newTool = normalizeToolCategories(await tools.create({ name: addToolName, url: addToolUrl, desc: addToolDesc, category_ids: addToolCats, icon, bg_color: colors.bg, text_color: colors.text, password: addToolPassword || undefined }))
     closeAddTool()
     setToolList(prev => [...prev, newTool])
     loadHomeData(true)
@@ -1285,9 +1306,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
 
   const updateTool = async () => {
     if (!editTool) return
-    const updated = await tools.update(editTool.id, { name: editTool.name, url: editTool.url, desc: editTool.desc, category_id: editTool.category_id, icon: editTool.icon, bg_color: editTool.bg_color, text_color: editTool.text_color, password: editTool.password !== undefined ? editTool.password : undefined })
+    const updated = await tools.update(editTool.id, { name: editTool.name, url: editTool.url, desc: editTool.desc, category_ids: editTool.category_ids, icon: editTool.icon, bg_color: editTool.bg_color, text_color: editTool.text_color, password: editTool.password !== undefined ? editTool.password : undefined })
     setEditTool(null)
-    if (updated) { setToolList(prev => prev.map(t => t.id === updated.id ? updated : t)); loadHomeData(true) }
+    if (updated) { setToolList(prev => prev.map(t => t.id === updated.id ? normalizeToolCategories(updated) : t)); loadHomeData(true) }
   }
 
   const deleteTool = async (id: string) => {
@@ -2307,19 +2328,21 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               />
               <input value={addToolPassword} onChange={e => setAddToolPassword(e.target.value)} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               {/* Category selector */}
-               <select value={addToolCat} onChange={e => { setAddToolCat(e.target.value); setAddToolCatError('') }}
-                  className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
-                  <option value="">{t('选择分类')}</option>
-                  {categoryList.filter((c: any) => !c.parent_id).map((cat: any) => (
-                    <optgroup key={cat.id} label={t(cat.name)}>
-                      <option value={cat.id}>{t(cat.name)} - {t('全部')}</option>
-                      {categoryList.filter((sc: any) => sc.parent_id === cat.id).map((sc: any) => (
-                        <option key={sc.id} value={sc.id}>{t(cat.name)} &gt; {t(sc.name)}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                {addToolCatError && <p className="text-xs text-red-500">{addToolCatError}</p>}
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('分类（可多选）')}</label>
+                <CategoryMultiSelect
+                  searchable
+                  options={homeCategoryOptions}
+                  selected={addToolCats}
+                  onToggle={(catId) => {
+                    setAddToolCats(prev => prev.includes(catId)
+                      ? prev.filter(x => x !== catId)
+                      : [...prev, catId])
+                    setAddToolCatError('')
+                  }}
+                />
+                {addToolCatError && <p className="mt-1 text-xs text-red-500">{addToolCatError}</p>}
+              </div>
               {/* 图标来源 */}
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('图标来源')}</label>
@@ -2433,18 +2456,23 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
               <input value={editTool.desc || ''} onChange={e => setEditTool({ ...editTool, desc: e.target.value })} placeholder={t('描述')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               <input value={editTool.password || ''} onChange={e => setEditTool({ ...editTool, password: e.target.value })} type="password" placeholder={t('密码（选填）')} className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               {/* Category selector */}
-              <select value={editTool.category_id || ''} onChange={e => setEditTool({ ...editTool, category_id: e.target.value })}
-                className="w-full h-12 px-4 bg-white/60 border border-white/80 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 text-sm">
-                <option value="">{t('选择分类')}</option>
-                {categoryList.filter((c: any) => !c.parent_id).map((cat: any) => (
-                  <optgroup key={cat.id} label={t(cat.name)}>
-                    <option value={cat.id}>{t(cat.name)} - {t('全部')}</option>
-                    {categoryList.filter((sc: any) => sc.parent_id === cat.id).map((sc: any) => (
-                      <option key={sc.id} value={sc.id}>{t(cat.name)} &gt; {t(sc.name)}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-gray-500">{t('分类（可多选）')}</label>
+                <CategoryMultiSelect
+                  searchable
+                  options={homeCategoryOptions}
+                  selected={editTool.category_ids || [editTool.category_id].filter(Boolean)}
+                  onToggle={(catId) => {
+                    const selected = editTool.category_ids || [editTool.category_id].filter(Boolean)
+                    setEditTool({
+                      ...editTool,
+                      category_ids: selected.includes(catId)
+                        ? selected.filter((x: string) => x !== catId)
+                        : [...selected, catId],
+                    })
+                  }}
+                />
+              </div>
               <div className="flex gap-2">
                 <button onClick={() => setEditTool(null)} className="flex-1 h-11 rounded-2xl border border-white/80 text-gray-600 hover:bg-white/50">{t('取消')}</button>
                 <button onClick={updateTool} className="flex-1 h-11 rounded-2xl bg-blue-500 text-white hover:bg-blue-600">{t('保存')}</button>
@@ -2463,7 +2491,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
              <button onClick={() => { setParentCatId(catContextMenu.cat.id); setNewCatName(''); setShowCreateCat(true); setCatContextMenu(null) }}
                 className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('添加子分类')}</span><FolderPlus className="w-4 h-4" /></button>
            )}
-           <button onClick={() => { setAddToolCat(catContextMenu.cat.id); setAddToolCatError(''); setAddToolDups([]); setAddToolIconSrc('auto'); setShowAddTool(true); setCatContextMenu(null) }}
+           <button onClick={() => { setAddToolCats([catContextMenu.cat.id]); setAddToolCatError(''); setAddToolDups([]); setAddToolIconSrc('auto'); setShowAddTool(true); setCatContextMenu(null) }}
             className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('创建链接')}</span><Link2 className="w-4 h-4" /></button>
             <button onClick={() => { setEditCatId(catContextMenu.cat.id); setEditCatName(catContextMenu.cat.name); setEditCatIcon(catContextMenu.cat.icon || ''); setCatContextMenu(null) }}
               className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('编辑')}</span><Edit3 className="w-4 h-4" /></button>
@@ -2597,7 +2625,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
            <button onClick={() => { setHomeContextMenu(null); setParentCatId('__select__'); setShowCreateCat(true) }}
               className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('创建子分类')}</span><Layers className="w-4 h-4" /></button>
             <div className="border-t border-white/60" />
-           <button onClick={() => { setHomeContextMenu(null); setAddToolCat(''); setAddToolCatError(''); setAddToolDups([]); setAddToolIconSrc('auto'); setShowAddTool(true) }}
+           <button onClick={() => { setHomeContextMenu(null); setAddToolCats([]); setAddToolCatError(''); setAddToolDups([]); setAddToolIconSrc('auto'); setShowAddTool(true) }}
              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm text-gray-800 hover:bg-black/5"><span>{t('创建链接')}</span><Link2 className="w-4 h-4" /></button>
             <div className="border-t border-white/60" />
            <button onClick={() => { setHomeContextMenu(null); setShowWidgetSelector(true) }}

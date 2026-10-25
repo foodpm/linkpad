@@ -243,6 +243,17 @@ CREATE TABLE IF NOT EXISTS user_tools (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- One link can appear in multiple homepage categories.
+CREATE TABLE IF NOT EXISTS link_category_assignments (
+  link_id TEXT NOT NULL,
+  category_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (link_id, category_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_link_category_assignments_category
+  ON link_category_assignments(category_id);
+
 -- Todos
 CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY,

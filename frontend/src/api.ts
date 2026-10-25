@@ -216,7 +216,7 @@ export function invalidateWallpaperUrl(id: string) {
 
 // Links
 export const links = {
-  update: (id: string, data: { name?: string; url?: string; icon?: string; category_id?: string; bg_color?: string; text_color?: string; desc?: string }) =>
+  update: (id: string, data: { name?: string; url?: string; icon?: string; category_id?: string; category_ids?: string[]; bg_color?: string; text_color?: string; desc?: string }) =>
     request(`/api/links/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request(`/api/links/${id}`, { method: 'DELETE' }),
   reorder: (repoId: string, order: { id: string; sort_order: number }[]) =>
@@ -312,7 +312,7 @@ export const tools = {
     const query = q.toString()
     return request(`/api/tools${query ? '?' + query : ''}`, { method: 'POST', body: JSON.stringify(data) })
   },
-  update: (id: string, data: { name?: string; url?: string; desc?: string; category_id?: string; icon?: string; bg_color?: string; text_color?: string; password?: string }, params?: { admin?: boolean }) => {
+  update: (id: string, data: { name?: string; url?: string; desc?: string; category_id?: string; category_ids?: string[]; icon?: string; bg_color?: string; text_color?: string; password?: string }, params?: { admin?: boolean }) => {
     const q = new URLSearchParams()
     if (params?.admin) q.set('admin', 'true')
     const query = q.toString()

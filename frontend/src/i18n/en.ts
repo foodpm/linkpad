@@ -246,6 +246,7 @@ export const en: Record<string, string> = {
   '添加到首页': 'Add to homepage',
   '选择分类': 'Select category',
   '分类（可多选）': 'Categories (multi-select)',
+  '未找到匹配的分类': 'No matching categories found',
   '选择目标分类：': 'Choose target category:',
   '全部分类': 'All categories',
   '搜索名称或地址...': 'Search name or URL...',
