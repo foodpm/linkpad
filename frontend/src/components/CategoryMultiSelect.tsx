@@ -42,7 +42,7 @@ export default function CategoryMultiSelect({
           <button
             type="button"
             onClick={() => setOpen(v => !v)}
-            className="flex min-h-12 w-full items-center justify-between gap-2 rounded-2xl border border-gray-200 bg-white/60 px-3 py-2 text-left text-sm text-gray-800 transition-colors hover:bg-white/90"
+            className="flex min-h-12 w-full items-center justify-between gap-2 rounded-2xl border border-gray-200 bg-white/60 px-3 pr-2.5 py-2 text-left text-sm text-gray-800 transition-colors hover:bg-white/90"
           >
             <span className="truncate">
               {selectedLabels.length > 0 ? selectedLabels.join(', ') : t(placeholder || '选择分类')}

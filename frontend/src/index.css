@@ -48,6 +48,11 @@
   --font-sans: var(--app-font, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
 }
 
+/* 原生下拉框的系统箭头不要贴住右边缘；自定义箭头的 appearance-none 下拉不处理。 */
+select:not(.appearance-none) {
+  padding-right: 2.25rem;
+}
+
 /* ---------- 子分类标题竖杠：纯白 ---------- */
 .lp-subcat-bar {
   background: rgba(255, 255, 255, 0.96);
