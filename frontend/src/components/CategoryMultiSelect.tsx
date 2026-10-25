@@ -42,7 +42,7 @@ export default function CategoryMultiSelect({
           <button
             type="button"
             onClick={() => setOpen(v => !v)}
-            className="flex min-h-11 w-full items-center justify-between gap-2 rounded-2xl border border-white/80 bg-white/60 px-3 py-2 text-left text-sm text-gray-800 transition-colors hover:bg-white/90"
+            className="flex min-h-12 w-full items-center justify-between gap-2 rounded-2xl border border-gray-200 bg-white/60 px-3 py-2 text-left text-sm text-gray-800 transition-colors hover:bg-white/90"
           >
             <span className="truncate">
               {selectedLabels.length > 0 ? selectedLabels.join(', ') : t(placeholder || '选择分类')}
@@ -50,7 +50,7 @@ export default function CategoryMultiSelect({
             <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
           </button>
           {open && (
-            <div className="mt-2 rounded-2xl border border-white/80 bg-white/95 p-2 shadow-lg">
+            <div className="mt-2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg">
               <div className="relative mb-2">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
                 <input
@@ -85,7 +85,7 @@ export default function CategoryMultiSelect({
           )}
         </div>
       ) : (
-        <div className="flex min-h-11 flex-wrap gap-2 rounded-2xl border border-white/80 bg-white/60 px-2 py-2">
+        <div className="flex min-h-12 flex-wrap gap-2 rounded-2xl border border-gray-200 bg-white/60 px-2 py-2">
           {options.map(option => {
             const selectedNow = selected.includes(option.id)
             return (
@@ -93,7 +93,7 @@ export default function CategoryMultiSelect({
                 key={option.id}
                 type="button"
                 onClick={() => onToggle(option.id)}
-                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${selectedNow ? 'bg-blue-500 text-white' : 'border border-white/80 bg-white/60 text-gray-600 hover:bg-white/90'}`}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${selectedNow ? 'bg-blue-500 text-white' : 'border border-gray-200 bg-white/60 text-gray-600 hover:bg-white/90'}`}
               >
                 {t(option.label)}
               </button>
