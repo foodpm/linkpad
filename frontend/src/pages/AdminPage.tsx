@@ -96,6 +96,9 @@ export default function AdminPage() {
   const [reposCursor, setReposCursor] = useState<string | null>(null)
   const [reposLoading, setReposLoading] = useState(false)
 
+  // User metrics: total users + extension usage (independent of the paginated list)
+  const [overview, setOverview] = useState<{ users: number; extensionUsers: number; extensionInstalls: number } | null>(null)
+
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null)
 
@@ -128,6 +131,10 @@ export default function AdminPage() {
     }).catch(() => {}).finally(() => setUsersLoading(false))
   }
 
+  const loadOverview = () => {
+    admin.overview().then(setOverview).catch(() => {})
+  }
+
   const loadRepos = (cursor = '') => {
     const p: any = {}
     if (repoFilter.search) p.search = repoFilter.search
@@ -141,7 +148,7 @@ export default function AdminPage() {
     }).catch(() => {}).finally(() => setReposLoading(false))
   }
 
-  useEffect(() => { if (isAdmin && section === 'users') loadUsers() }, [isAdmin, section])
+  useEffect(() => { if (isAdmin && section === 'users') { loadUsers(); loadOverview() } }, [isAdmin, section])
   useEffect(() => { if (isAdmin && section === 'repos') loadRepos() }, [isAdmin, section])
 
   // Category handlers
@@ -254,7 +261,7 @@ export default function AdminPage() {
           </button>
           <h1 className="text-lg font-bold text-gray-900">{t(NAV_ITEMS.find(i => i.id === section)?.label || '')}</h1>
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => { if (section === 'users') loadUsers(); else if (section === 'repos') loadRepos(); else loadCatsAndTools() }}
+            <button onClick={() => { if (section === 'users') { loadUsers(); loadOverview() } else if (section === 'repos') loadRepos(); else loadCatsAndTools() }}
               className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all" title={t('刷新')}>
               <IconRefresh />
             </button>
@@ -391,7 +398,22 @@ export default function AdminPage() {
 
           {/* ==================== USERS SECTION ==================== */}
           {section === 'users' && (
-            <div className="bg-white rounded-xl border border-[#e5e7eb] overflow-hidden">
+            <div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                <div className="bg-white rounded-xl border border-[#e5e7eb] px-5 py-4">
+                  <p className="text-xs text-gray-400">{t('用户总数')}</p>
+                  <p className="mt-1 text-2xl font-semibold text-gray-800">{overview?.users ?? '-'}</p>
+                </div>
+                <div className="bg-white rounded-xl border border-[#e5e7eb] px-5 py-4">
+                  <p className="text-xs text-gray-400">{t('使用插件的用户')}</p>
+                  <p className="mt-1 text-2xl font-semibold text-gray-800">{overview?.extensionUsers ?? '-'}</p>
+                </div>
+                <div className="bg-white rounded-xl border border-[#e5e7eb] px-5 py-4">
+                  <p className="text-xs text-gray-400">{t('插件安装次数')}</p>
+                  <p className="mt-1 text-2xl font-semibold text-gray-800">{overview?.extensionInstalls ?? '-'}</p>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl border border-[#e5e7eb] overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#f0f0f0]">
                 <h2 className="font-semibold text-gray-800">{t('用户列表')} <span className="text-gray-400 font-normal text-sm ml-1">({userList.length})</span></h2>
               </div>
@@ -424,6 +446,10 @@ export default function AdminPage() {
                       <th className="text-left py-3 px-5 font-semibold">{t('用户')}</th>
                       <th className="text-left py-3 px-5 font-semibold">{t('邮箱')}</th>
                       <th className="text-left py-3 px-5 font-semibold">{t('注册时间')}</th>
+                      <th className="text-left py-3 px-5 font-semibold">{t('首次活跃')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('插件')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('首页链接')}</th>
+                      <th className="text-center py-3 px-5 font-semibold">{t('首页分类')}</th>
                       <th className="text-center py-3 px-5 font-semibold">{t('关注数')}</th>
                       <th className="text-center py-3 px-5 font-semibold">{t('收藏数')}</th>
                       <th className="text-center py-3 px-5 font-semibold">{t('仓库数')}</th>
@@ -433,7 +459,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {userList.length === 0 ? (
-                      <tr><td colSpan={8} className="text-center py-10 text-gray-400">{t('暂无数据')}</td></tr>
+                      <tr><td colSpan={12} className="text-center py-10 text-gray-400">{t('暂无数据')}</td></tr>
                     ) : userList.map((u: any) => (
                       <tr key={u.id} className="border-t border-[#f0f0f0] hover:bg-[#fafbfc]">
                         <td className="py-3 px-5">
@@ -444,6 +470,19 @@ export default function AdminPage() {
                         </td>
                         <td className="py-3 px-5 text-gray-400 text-xs">{u.email}</td>
                         <td className="py-3 px-5 text-gray-500 text-xs">{u.created_at ? new Date(u.created_at).toLocaleDateString('zh-CN') : '-'}</td>
+                        <td className="py-3 px-5 text-gray-500 text-xs">
+                          {u.first_active_at ? new Date(u.first_active_at).toLocaleString('zh-CN') : '-'}
+                          {u.first_active_at && u.first_active_at === u.created_at && (
+                            <span className="ml-1 text-gray-400" title={t('历史用户按注册时间回填，后续按真实首次操作记录')}>*</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-5 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${u.extension_install_count ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-400'}`}>
+                            {u.extension_install_count ? t('已使用') : t('未使用')}
+                          </span>
+                        </td>
+                        <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.home_link_count || 0}</td>
+                        <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.home_category_count || 0}</td>
                         <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.followed_repos_count || 0}</td>
                         <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.bookmark_count || 0}</td>
                         <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.repo_count || 0}</td>
@@ -472,6 +511,7 @@ export default function AdminPage() {
                   <button onClick={() => loadUsers(usersCursor)} disabled={usersLoading} className="h-8 px-4 text-sm text-blue-500 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50">{usersLoading ? t('加载中…') : t('加载更多')}</button>
                 </div>
               )}
+              </div>
             </div>
           )}
 

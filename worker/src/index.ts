@@ -24,6 +24,7 @@ type Bindings = {
   SEND_EMAIL: SendEmailBinding
   BROWSER: unknown
   PREVIEW_RL: RateLimitBinding
+  EXTENSION_RL: RateLimitBinding
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
 }
@@ -34,6 +35,22 @@ type User = {
   nickname: string
   avatar_url: string
 }
+
+type ActivityAction =
+  | 'extension_install'
+  | 'extension_use'
+  | 'profile_update'
+  | 'repo_create'
+  | 'repo_update'
+  | 'category_create'
+  | 'category_update'
+  | 'link_create'
+  | 'link_update'
+  | 'link_click'
+  | 'follow_user'
+  | 'follow_repo'
+  | 'bookmark_repo'
+  | 'widget_update'
 
 const app = new Hono<{ Bindings: Bindings; Variables: { lang: Lang } }>()
 
@@ -108,6 +125,31 @@ async function getUser(c: any): Promise<User | null> {
 
 function isAdmin(c: any, user: User | null): boolean {
   return user?.email === c.env.ADMIN_EMAIL
+}
+
+// “有动作”统一以服务端成功写入的时间为准。只记录第一次活跃，后续只刷新最近活跃。
+async function markUserActive(db: D1Database, userId: string) {
+  try {
+    await db.prepare(
+      `UPDATE users
+       SET first_active_at = COALESCE(first_active_at, datetime('now')),
+           last_active_at = datetime('now')
+       WHERE id = ?`
+    ).bind(userId).run()
+  } catch (err) {
+    // Tracking must never make sign-in or product actions fail.
+    console.error('Activity timestamp update failed:', err)
+  }
+}
+
+async function recordActivity(c: any, user: User, action: ActivityAction) {
+  try {
+    await markUserActive(c.env.DB, user.id)
+    console.log(JSON.stringify({ event: 'user_action', userId: user.id, action }))
+  } catch (err) {
+    // 埋点失败不能影响主业务请求
+    console.error('Activity tracking failed:', err)
+  }
 }
 
 // 批量计数：对当前页主键做 IN 点查（走既有索引），返回 id→count 映射
@@ -225,6 +267,7 @@ app.post('/api/auth/register', async (c) => {
   await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, nickname) VALUES (?, ?, ?, ?)').bind(id, email, hash, nick).run()
 
   await seedNewUser(c.env.DB, id)
+  await markUserActive(c.env.DB, id)
 
   const token = await signJWT({ sub: id, email }, c.env.JWT_SECRET)
   return c.json({ token, user: { id, email, nickname: nick, avatar_url: '' } })
@@ -241,6 +284,7 @@ app.post('/api/auth/login', async (c) => {
   const hash = await hashPassword(password, c.env.JWT_SECRET)
   if (hash !== user.password_hash) return c.json({ error: T(c, '密码错误') }, 401)
 
+  await markUserActive(c.env.DB, user.id)
   const token = await signJWT({ sub: user.id, email: user.email }, c.env.JWT_SECRET)
   return c.json({ token, user: { id: user.id, email: user.email, nickname: user.nickname, avatar_url: user.avatar_url } })
 })
@@ -249,6 +293,59 @@ app.get('/api/auth/me', async (c) => {
   const user = await getUser(c)
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
   return c.json(user)
+})
+
+// ==================== Activity & Extension Tracking ====================
+
+app.post('/api/activity/heartbeat', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
+  await markUserActive(c.env.DB, user.id)
+  return c.json({ success: true })
+})
+
+app.post('/api/extension/track', async (c) => {
+  if (c.env.EXTENSION_RL) {
+    const ip = c.req.header('CF-Connecting-IP') || 'unknown'
+    const { success } = await c.env.EXTENSION_RL.limit({ key: `extension:${ip}` })
+    if (!success) return c.json({ error: T(c, '请求过于频繁') }, 429)
+  }
+
+  const body = await c.req.json().catch(() => ({})) as {
+    install_id?: string
+    event?: string
+    version?: string
+  }
+  const installId = String(body.install_id || '').trim()
+  const event = body.event === 'install' || body.event === 'use' || body.event === 'link'
+    ? body.event
+    : ''
+  if (!/^[A-Za-z0-9_-]{16,80}$/.test(installId) || !event) {
+    return c.json({ error: T(c, '无效的插件上报') }, 400)
+  }
+
+  const version = String(body.version || '').slice(0, 32)
+  await c.env.DB.prepare(
+    `INSERT INTO extension_installs (install_id, version, first_seen_at, last_seen_at, last_event, use_count)
+     VALUES (?, ?, datetime('now'), datetime('now'), ?, ?)
+     ON CONFLICT(install_id) DO UPDATE SET
+       version = excluded.version,
+       last_seen_at = datetime('now'),
+       last_event = excluded.last_event,
+       use_count = extension_installs.use_count + excluded.use_count`
+  ).bind(installId, version, event, event === 'use' ? 1 : 0).run()
+
+  const user = await getUser(c)
+  if (event === 'link' && !user) return c.json({ error: T(c, '未登录') }, 401)
+  if (user) {
+    await c.env.DB.prepare(
+      `INSERT INTO extension_user_installs (user_id, install_id, first_used_at, last_used_at)
+       VALUES (?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(user_id, install_id) DO UPDATE SET last_used_at = datetime('now')`
+    ).bind(user.id, installId).run()
+    await recordActivity(c, user, event === 'install' ? 'extension_install' : 'extension_use')
+  }
+  return c.json({ success: true })
 })
 
 // ==================== Password Reset ====================
@@ -414,6 +511,7 @@ app.get('/api/auth/google/callback', async (c) => {
       .bind(userId, email, '', nick, ui.picture || '').run()
     await seedNewUser(c.env.DB, userId)
   }
+  await markUserActive(c.env.DB, userId)
 
   const user = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url FROM users WHERE id = ?').bind(userId).first()
   const token = await signJWT({ sub: userId, email }, c.env.JWT_SECRET)
@@ -500,6 +598,7 @@ app.put('/api/users/me', async (c) => {
   if (avatar_url !== undefined) {
     await c.env.DB.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').bind(avatar_url, user.id).run()
   }
+  await recordActivity(c, user, 'profile_update')
 
   const updated = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url FROM users WHERE id = ?').bind(user.id).first()
   return c.json(updated)
@@ -541,6 +640,7 @@ app.post('/api/user/widgets', async (c) => {
   await c.env.DB.prepare(
     "INSERT INTO user_preferences (user_id, widgets, item_order, countdown_events, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET widgets = ?, item_order = ?, countdown_events = ?, updated_at = datetime('now')"
   ).bind(user.id, widgetsJson, orderJson, cdEventsJson, widgetsJson, orderJson, cdEventsJson).run()
+  await recordActivity(c, user, 'widget_update')
   return c.json({ success: true })
 })
 
@@ -708,6 +808,7 @@ app.post('/api/repos', async (c) => {
     }
   }
 
+  await recordActivity(c, user, 'repo_create')
   const repo = await c.env.DB.prepare('SELECT * FROM repositories WHERE id = ?').bind(id).first()
   return c.json(repo, 201)
 })
@@ -799,6 +900,7 @@ app.put('/api/repos/:id', async (c) => {
     }
   }
 
+  await recordActivity(c, user, 'repo_update')
   const updated = await c.env.DB.prepare('SELECT * FROM repositories WHERE id = ?').bind(id).first()
   return c.json(updated)
 })
@@ -853,6 +955,7 @@ app.get('/api/repos/:id/links/duplicates', async (c) => {
 app.post('/api/repos/:id/links', async (c) => {
   const repoId = c.req.param('id')
   if (!(await canManageRepo(c, repoId))) return c.json({ error: T(c, '无权操作') }, 403)
+  const currentUser = await getUser(c)
 
   const repo = await c.env.DB.prepare('SELECT * FROM repositories WHERE id = ?').bind(repoId).first() as any
   if (!repo) return c.json({ error: T(c, '仓库不存在') }, 404)
@@ -889,6 +992,7 @@ app.post('/api/repos/:id/links', async (c) => {
   // 后台预热该链接的悬停预览截图（不阻塞响应）
   c.executionCtx.waitUntil(preCapture(c.env, url))
 
+  if (currentUser) await recordActivity(c, currentUser, 'link_create')
   return c.json(link, 201)
 })
 
@@ -919,6 +1023,8 @@ app.put('/api/links/:id', async (c) => {
     syncLinkToFollowers(c.env.DB, link.repo_id, updated, 'update').catch(e => console.error('sync update error:', e))
   }
 
+  const user = await getUser(c)
+  if (user) await recordActivity(c, user, 'link_update')
   return c.json(updated)
 })
 
@@ -972,6 +1078,7 @@ app.post('/api/repos/:id/categories', async (c) => {
 
   const maxOrder = await c.env.DB.prepare('SELECT MAX(sort_order) as max FROM repo_categories WHERE repo_id = ?').bind(repoId).first() as any
   await c.env.DB.prepare('INSERT INTO repo_categories (id, repo_id, name, sort_order) VALUES (?, ?, ?, ?)').bind(crypto.randomUUID(), repoId, name, (maxOrder?.max ?? -1) + 1).run()
+  await recordActivity(c, user, 'category_create')
   return c.json({ success: true })
 })
 
@@ -997,6 +1104,7 @@ app.delete('/api/repos/:id/categories/:name', async (c) => {
 
   await c.env.DB.prepare('DELETE FROM repo_categories WHERE repo_id = ? AND name = ?').bind(repoId, catName).run()
   await c.env.DB.prepare('UPDATE repo_links SET category_id = \'\' WHERE repo_id = ? AND category_id = ?').bind(repoId, catName).run()
+  await recordActivity(c, user, 'category_update')
   return c.json({ success: true })
 })
 
@@ -1028,6 +1136,7 @@ app.put('/api/repos/:id/categories/reorder', async (c) => {
     console.error('Sync category reorder to followers error:', e)
   }
 
+  await recordActivity(c, user, 'category_update')
   return c.json({ success: true })
 })
 
@@ -1051,6 +1160,7 @@ app.put('/api/repos/:id/categories/:name', async (c) => {
     await c.env.DB.prepare('UPDATE user_categories SET name = ? WHERE user_id = ? AND parent_id = ? AND name = ?').bind(newName.trim(), f.user_id, f.target_category_id, oldName).run()
   }
   
+  await recordActivity(c, user, 'category_update')
   return c.json({ success: true })
 })
 
@@ -1083,6 +1193,7 @@ app.put('/api/repos/:id/links/reorder', async (c) => {
   } catch (e) {
     console.error('Sync link reorder to followers error:', e)
   }
+  await recordActivity(c, user, 'link_update')
   return c.json({ success: true })
 })
 
@@ -1180,6 +1291,7 @@ app.post('/api/follows/user/:userId', async (c) => {
   const actorName = user.nickname || '某用户'
   await createNotification(c.env.DB, targetId, 'follow_user', user.id, '', `${actorName} 关注了您`)
 
+  await recordActivity(c, user, 'follow_user')
   return c.json({ success: true })
 })
 
@@ -1310,6 +1422,7 @@ app.post('/api/follows/repo/:repoId', async (c) => {
     }
   }
 
+  await recordActivity(c, user, 'follow_repo')
   return c.json({ success: true })
 })
 
@@ -1344,6 +1457,7 @@ app.post('/api/bookmarks/repo/:repoId', async (c) => {
     await createNotification(c.env.DB, repoInfo.user_id, 'bookmark_repo', user.id, repoId, `${user.nickname || '某用户'} 收藏了您的仓库「${repoInfo.name}」`)
   }
 
+  await recordActivity(c, user, 'bookmark_repo')
   return c.json({ success: true })
 })
 
@@ -1618,6 +1732,22 @@ app.get('/api/admin/check', async (c) => {
   return c.json({ isAdmin: user ? isAdmin(c, user) : false })
 })
 
+app.get('/api/admin/overview', async (c) => {
+  const user = await getUser(c)
+  if (!user || !isAdmin(c, user)) return c.json({ error: T(c, '无权访问') }, 403)
+
+  const [users, extensionUsers, extensionInstalls] = await Promise.all([
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<any>(),
+    c.env.DB.prepare('SELECT COUNT(DISTINCT user_id) AS n FROM extension_user_installs').first<any>(),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM extension_installs').first<any>(),
+  ])
+  return c.json({
+    users: users?.n || 0,
+    extensionUsers: extensionUsers?.n || 0,
+    extensionInstalls: extensionInstalls?.n || 0,
+  })
+})
+
 // Admin: list all users（keyset 分页 + 展示性 COUNT 对当前页二次点查，主查询不做关联聚合物化）
 app.get('/api/admin/users', async (c) => {
   const user = await getUser(c)
@@ -1626,7 +1756,7 @@ app.get('/api/admin/users', async (c) => {
   const { search, status, email, nickname, cursor } = c.req.query()
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 100)
 
-  let sql = 'SELECT u.id, u.email, u.nickname, u.avatar_url, u.created_at, u.status FROM users u WHERE 1=1'
+  let sql = 'SELECT u.id, u.email, u.nickname, u.avatar_url, u.created_at, u.first_active_at, u.last_active_at, u.status FROM users u WHERE 1=1'
   const params: any[] = []
   if (nickname) { sql += ' AND u.nickname LIKE ?'; params.push(`%${nickname}%`) }
   if (email) { sql += ' AND u.email LIKE ?'; params.push(`%${email}%`) }
@@ -1642,12 +1772,15 @@ app.get('/api/admin/users', async (c) => {
   const rows = results as any[]
   const ids = rows.map(r => r.id)
   const ph = ids.map(() => '?').join(',')
-  const [follower, following, followedRepos, bookmarks, repos] = await Promise.all([
+  const [follower, following, followedRepos, bookmarks, repos, homeLinks, homeCategories, extensionInstalls] = await Promise.all([
     countBy(c.env.DB, `SELECT following_id AS id, COUNT(*) AS n FROM follows WHERE following_id IN (${ph}) GROUP BY following_id`, ids),
     countBy(c.env.DB, `SELECT follower_id AS id, COUNT(*) AS n FROM follows WHERE follower_id IN (${ph}) GROUP BY follower_id`, ids),
     countBy(c.env.DB, `SELECT user_id AS id, COUNT(*) AS n FROM repo_follows WHERE user_id IN (${ph}) GROUP BY user_id`, ids),
     countBy(c.env.DB, `SELECT user_id AS id, COUNT(*) AS n FROM repo_bookmarks WHERE user_id IN (${ph}) GROUP BY user_id`, ids),
     countBy(c.env.DB, `SELECT user_id AS id, COUNT(*) AS n FROM repositories WHERE user_id IN (${ph}) GROUP BY user_id`, ids),
+    countBy(c.env.DB, `SELECT user_id AS id, COUNT(*) AS n FROM user_tools WHERE user_id IN (${ph}) GROUP BY user_id`, ids),
+    countBy(c.env.DB, `SELECT user_id AS id, COUNT(*) AS n FROM user_categories WHERE user_id IN (${ph}) GROUP BY user_id`, ids),
+    countBy(c.env.DB, `SELECT user_id AS id, COUNT(*) AS n FROM extension_user_installs WHERE user_id IN (${ph}) GROUP BY user_id`, ids),
   ])
   for (const r of rows) {
     r.follower_count = follower[r.id] || 0
@@ -1655,6 +1788,9 @@ app.get('/api/admin/users', async (c) => {
     r.followed_repos_count = followedRepos[r.id] || 0
     r.bookmark_count = bookmarks[r.id] || 0
     r.repo_count = repos[r.id] || 0
+    r.home_link_count = homeLinks[r.id] || 0
+    r.home_category_count = homeCategories[r.id] || 0
+    r.extension_install_count = extensionInstalls[r.id] || 0
   }
 
   const nextCursor = rows.length === limit ? btoa(`${rows[rows.length - 1].created_at}|${rows[rows.length - 1].id}`) : null
@@ -1742,6 +1878,7 @@ async function deleteUserData(db: D1Database, userId: string) {
   await db.prepare('DELETE FROM user_preferences WHERE user_id = ?').bind(userId).run()
   await db.prepare('DELETE FROM user_hidden_categories WHERE user_id = ?').bind(userId).run()
   await db.prepare('DELETE FROM user_hidden_tools WHERE user_id = ?').bind(userId).run()
+  await db.prepare('DELETE FROM extension_user_installs WHERE user_id = ?').bind(userId).run()
 }
 
 app.delete('/api/admin/users/:id', async (c) => {
@@ -1854,6 +1991,7 @@ app.post('/api/categories', async (c) => {
   const id = crypto.randomUUID()
   const maxOrder = await c.env.DB.prepare('SELECT MAX(sort_order) as max FROM user_categories WHERE user_id = ?').bind(user.id).first() as any
   await c.env.DB.prepare('INSERT INTO user_categories (id, user_id, name, icon, parent_id, sort_order, password) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, user.id, name, icon || 'Sparkles', parent_id || '', (maxOrder?.max ?? -1) + 1, password || '').run()
+  await recordActivity(c, user, 'category_create')
   const cat = await c.env.DB.prepare('SELECT * FROM user_categories WHERE id = ?').bind(id).first()
   return c.json(cat, 201)
 })
@@ -1879,6 +2017,7 @@ app.put('/api/categories/:id', async (c) => {
   if (icon !== undefined) await c.env.DB.prepare('UPDATE user_categories SET icon = ? WHERE id = ? AND user_id = ?').bind(icon, id, user.id).run()
   if (parent_id !== undefined) await c.env.DB.prepare('UPDATE user_categories SET parent_id = ? WHERE id = ? AND user_id = ?').bind(parent_id, id, user.id).run()
   if (password !== undefined) await c.env.DB.prepare('UPDATE user_categories SET password = ? WHERE id = ? AND user_id = ?').bind(password, id, user.id).run()
+  await recordActivity(c, user, 'category_update')
   const updated = await c.env.DB.prepare('SELECT * FROM user_categories WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   return c.json(updated || {})
 })
@@ -2023,6 +2162,7 @@ app.post('/api/tools', async (c) => {
   // Normal user OR admin without admin=true: create personal tool
   const maxOrder = await c.env.DB.prepare('SELECT MAX(sort_order) as max FROM user_tools WHERE user_id = ? AND category_id = ?').bind(user.id, category_id || '').first() as any
   await c.env.DB.prepare('INSERT INTO user_tools (id, user_id, name, url, desc, category_id, icon, bg_color, text_color, sort_order, viewed, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)').bind(id, user.id, name, url, desc || '', category_id || '', icon || '', bg_color || '', text_color || '', (maxOrder?.max ?? -1) + 1, password || '').run()
+  await recordActivity(c, user, 'link_create')
   const tool = await c.env.DB.prepare('SELECT * FROM user_tools WHERE id = ?').bind(id).first()
   // 后台预热该链接的悬停预览截图（不阻塞响应）
   c.executionCtx.waitUntil(preCapture(c.env, url))
@@ -2087,6 +2227,7 @@ app.put('/api/tools/:id', async (c) => {
   if (bg_color !== undefined) await c.env.DB.prepare('UPDATE user_tools SET bg_color = ? WHERE id = ? AND user_id = ?').bind(bg_color, id, user.id).run()
   if (text_color !== undefined) await c.env.DB.prepare('UPDATE user_tools SET text_color = ? WHERE id = ? AND user_id = ?').bind(text_color, id, user.id).run()
   if (password !== undefined) await c.env.DB.prepare('UPDATE user_tools SET password = ? WHERE id = ? AND user_id = ?').bind(password, id, user.id).run()
+  await recordActivity(c, user, 'link_update')
   const updated = await c.env.DB.prepare('SELECT * FROM user_tools WHERE id = ? AND user_id = ?').bind(id, user.id).first()
   return c.json(updated || {})
 })
@@ -2138,6 +2279,7 @@ app.post('/api/tools/:id/click', async (c) => {
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const id = c.req.param('id')
   await c.env.DB.prepare('UPDATE user_tools SET click_count = COALESCE(click_count, 0) + 1 WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+  await recordActivity(c, user, 'link_click')
   return c.json({ success: true })
 })
 

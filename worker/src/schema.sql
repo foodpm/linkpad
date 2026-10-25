@@ -48,8 +48,31 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   nickname TEXT NOT NULL DEFAULT '',
   avatar_url TEXT DEFAULT '',
+  first_active_at TEXT,
+  last_active_at TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- Browser extension installs (anonymous until linked to an account)
+CREATE TABLE IF NOT EXISTS extension_installs (
+  install_id TEXT PRIMARY KEY,
+  version TEXT DEFAULT '',
+  first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_event TEXT DEFAULT '',
+  use_count INTEGER NOT NULL DEFAULT 0
+);
+
+-- Account ↔ extension install mapping, created when a signed-in user opens the extension
+CREATE TABLE IF NOT EXISTS extension_user_installs (
+  user_id TEXT NOT NULL,
+  install_id TEXT NOT NULL,
+  first_used_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, install_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_extension_user_installs_user ON extension_user_installs(user_id, last_used_at);
 
 -- Repositories
 CREATE TABLE IF NOT EXISTS repositories (

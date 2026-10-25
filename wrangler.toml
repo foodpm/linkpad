@@ -46,6 +46,13 @@ type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
+# 速率限制：扩展安装/使用上报（每 IP 每 60s 最多 60 次，正常打开新标签页远低于此值）
+[[unsafe.bindings]]
+name = "EXTENSION_RL"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
 # 定时任务：链接失效兜底扫描（UTC 21:00 = 北京 05:00 低峰）
 [triggers]
 crons = ["0 21 * * *"]

@@ -52,6 +52,19 @@ export const auth = {
     request('/api/auth/reset-password', { method: 'POST', body: JSON.stringify(data) }),
 }
 
+// Activity / browser extension tracking
+export const activity = {
+  heartbeat: () => request('/api/activity/heartbeat', { method: 'POST', body: '{}' }),
+}
+
+export const extensionTracking = {
+  link: (data: { install_id: string; version?: string }) =>
+    request('/api/extension/track', {
+      method: 'POST',
+      body: JSON.stringify({ ...data, event: 'link' }),
+    }),
+}
+
 // User
 export const users = {
   get: (id: string) => request(`/api/users/${id}`),
@@ -454,6 +467,11 @@ export interface WereadNote {
 // Admin
 export const admin = {
   check: () => request('/api/admin/check') as Promise<{ isAdmin: boolean }>,
+  overview: () => request('/api/admin/overview') as Promise<{
+    users: number
+    extensionUsers: number
+    extensionInstalls: number
+  }>,
   users: {
     list: (params?: { nickname?: string; email?: string; status?: string }) => {
       const q = new URLSearchParams()

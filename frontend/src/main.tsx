@@ -7,13 +7,18 @@ import App from './App.tsx'
 import RepoPage from './pages/RepoPage'
 import UserPage from './pages/UserPage'
 import AdminPage from './pages/AdminPage'
+import ExtensionBridge from './components/ExtensionBridge'
 import './index.css'
+
+// Chrome Web Store 安装版会把 install_id 放在 hash 中（URL fragment 不会发送到服务端）
+const extensionInstallId = new URLSearchParams(window.location.hash.slice(1)).get('linkpad_install_id')
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>
       <BrowserRouter>
         <AuthProvider>
+          <ExtensionBridge installId={extensionInstallId} />
           <Routes>
             <Route path="/" element={<App />} />
             <Route path="/repo/:id" element={<RepoPage />} />

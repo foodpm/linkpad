@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LinkPad \u65b0\u6807\u7b7e\u9875",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "\u5c06\u6d4f\u89c8\u5668\u65b0\u6807\u7b7e\u9875\u66ff\u6362\u4e3a LinkPad \u9996\u9875\uff0c\u652f\u6301\u79bb\u7ebf\u7f13\u5b58\uff0c\u6bcf\u6b21\u5f00\u65b0\u6807\u7b7e\u81ea\u52a8\u5c55\u793a\u60a8\u7684\u94fe\u63a5\u4ed3\u5e93",
   "chrome_url_overrides": {
     "newtab": "newtab.html"
