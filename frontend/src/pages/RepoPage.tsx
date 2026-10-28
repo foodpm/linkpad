@@ -364,7 +364,7 @@ export default function RepoPage() {
 
   const updateLink = async () => {
     if (!editLink) return
-    await links.update(editLink.id, { name: editLink.name, url: editLink.url, icon: editLink.icon, category_ids: editLink.category_ids, bg_color: editLink.bg_color, text_color: editLink.text_color, desc: editLink.desc })
+    await links.update(editLink.id, { ...editLink, category_ids: editLink.category_ids || [editLink.category_id].filter(Boolean) })
     setLinkList(await repos.links.list(id!))
     setEditLink(null); setEditLinkDups([])
   }
