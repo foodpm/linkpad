@@ -3789,7 +3789,7 @@ async function serveIndexSeo(c: any, build: (lang: Lang) => { title: string; des
   const m = build(lang)
   html = injectMeta(html, seoHead(lang, m.title, m.desc, m.cleanUrl, { keywords: m.keywords }))
   // HTML 短缓存 + SWR：新标签页秒开；lang 变体带在 query 上，URL 分键互不污染
-  c.header('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400')
+  c.header('Cache-Control', 'no-cache')
   return c.html(html)
 }
 
@@ -3877,14 +3877,14 @@ app.get('/repo/:id', async (c) => {
     html = html.replace(/<title>.*?<\/title>/s, () => meta)
     html = html.replace(/<html lang="[^"]*"/, `<html lang="${attrs.htmlLang}"`)
     html = html.replace(/<meta name="description" content="[^"]*"\s*\/?>/, '')
-    c.header('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400')
+    c.header('Cache-Control', 'no-cache')
     return c.html(html)
   } catch (e) {
     console.error('[repo-meta] failed:', c.req.path, e)
     // 出错时回退普通 SPA 页面
     const res = await c.env.ASSETS.fetch(new Request(new URL('/', c.req.url).toString()))
     if (res.status === 200) {
-      return new Response(res.body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300, stale-while-revalidate=86400' } })
+      return new Response(res.body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } })
     }
     return c.notFound()
   }
@@ -3905,7 +3905,7 @@ app.get('/*', async (c) => {
     headers.set('Access-Control-Allow-Origin', '*')
     // HTML 短缓存（5 分钟）+ 后台 SWR：assets 文件名带 hash，新版本最迟 ~5 分钟生效
     if (response.headers.get('content-type')?.includes('text/html')) {
-      headers.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400')
+      headers.set('Cache-Control', 'no-cache')
       headers.delete('Pragma')
       headers.delete('Expires')
     }
