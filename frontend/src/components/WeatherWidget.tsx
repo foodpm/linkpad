@@ -48,12 +48,12 @@ export function WeatherIcon({ code, isDay = true, className, strokeWidth }: { co
 function iconColor(code: number): string {
   if (code === 0 || code === 1) return 'text-amber-400'
   if (code === 2) return 'text-amber-400/90'
-  if (code === 3) return 'text-gray-400'
-  if (code === 45 || code === 48) return 'text-gray-400'
+  if (code === 3) return 'text-white/80'
+  if (code === 45 || code === 48) return 'text-white/80'
   if (code >= 95) return 'text-violet-500'
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'text-cyan-400'
-  if (code >= 51) return 'text-blue-400'
-  return 'text-gray-400'
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'text-cyan-300'
+  if (code >= 51) return 'text-blue-300'
+  return 'text-white/80'
 }
 
 /** 按天气类型给卡片顶部一层淡淡的天空色晕（呼应参考图的环境光） */
@@ -135,7 +135,7 @@ export function WeatherWidgetCard({ widget, onUpdate, onRemove, onHeightChange, 
   }
 
   // 磨砂玻璃卡身（参考图：白调磨砂 + 顶部天光晕 + 大圆角 + 柔和投影）
-  const cardCls = 'relative h-full rounded-3xl border border-white/70 bg-white/55 backdrop-blur-2xl shadow-[0_12px_40px_-10px_rgba(50,60,80,0.25)] overflow-hidden cursor-default select-none'
+  const cardCls = 'relative h-full rounded-3xl border border-white/35 bg-white/25 backdrop-blur-xl shadow-[0_12px_40px_-12px_rgba(0,0,0,0.42)] overflow-hidden cursor-default select-none text-white'
 
   // 未选城市：空状态（搜索胶囊 + 自动定位）
   if (!city) {
@@ -146,23 +146,23 @@ export function WeatherWidgetCard({ widget, onUpdate, onRemove, onHeightChange, 
           <X className="w-3 h-3" />
         </button>
         <div data-widget-card onContextMenu={onContextMenu} className={cardCls}>
-          <div className={`absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-sky-300/25 to-transparent pointer-events-none`} />
+          <div className={`absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-white/18 to-transparent pointer-events-none`} />
           <div className="relative h-full p-2.5 flex flex-col">
             <div className="flex items-center gap-2 flex-shrink-0">
-              <div className="flex-1 h-8 rounded-full bg-white/55 border border-white/80 flex items-center gap-2 px-3 min-w-0">
-                <Search className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                <span className="text-xs text-gray-400 truncate">{t('搜索城市')}</span>
+              <div className="flex-1 h-8 rounded-full bg-white/18 border border-white/30 flex items-center gap-2 px-3 min-w-0">
+                <Search className="w-3.5 h-3.5 text-white/70 flex-shrink-0" />
+                <span className="text-xs text-white/70 truncate">{t('搜索城市')}</span>
               </div>
               <button onClick={onPickCity}
-                className="w-8 h-8 rounded-full bg-white/55 border border-white/80 grid place-items-center flex-shrink-0 hover:bg-white/75 transition-all">
-                <Search className="w-3.5 h-3.5 text-gray-500" />
+                className="w-8 h-8 rounded-full bg-white/18 border border-white/30 grid place-items-center flex-shrink-0 hover:bg-white/28 transition-all">
+                <Search className="w-3.5 h-3.5 text-white" />
               </button>
             </div>
             <div className="flex-1 flex flex-col items-center justify-center gap-1.5 min-h-0">
-              <CloudSun className="w-6 h-6 text-gray-300" />
-              <span className="text-[11px] text-gray-400">{t('选择城市查看天气')}</span>
+              <CloudSun className="w-6 h-6 text-white/70" />
+              <span className="text-[11px] text-white/70">{t('选择城市查看天气')}</span>
               <button onClick={doRelocate} disabled={busy}
-                className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700 transition-all disabled:opacity-60">
+                className="flex items-center gap-1 text-[11px] text-white/70 hover:text-white transition-all disabled:opacity-60">
                 {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <MapPin className="w-3 h-3" />}{t('自动定位')}
               </button>
             </div>
@@ -180,18 +180,18 @@ export function WeatherWidgetCard({ widget, onUpdate, onRemove, onHeightChange, 
         <X className="w-3 h-3" />
       </button>
       <div data-widget-card onContextMenu={onContextMenu} className={cardCls}>
-        {data && <div className={`absolute inset-x-0 top-0 h-20 bg-gradient-to-b ${skyTint(data.code, data.isDay)} to-transparent pointer-events-none`} />}
+        {data && <div className={`absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-white/18 to-transparent pointer-events-none`} />}
         <div className="relative h-full p-2.5 flex flex-col min-h-0">
 
           {/* 顶部：城市搜索胶囊 + 圆形操作按钮 */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button onClick={onPickCity} title={t('更换城市')}
-              className="flex-1 h-8 rounded-full bg-white/55 border border-white/80 flex items-center gap-2 px-3 min-w-0 hover:bg-white/75 transition-all">
-              <Search className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-              <span className="text-xs font-medium text-gray-700 truncate">{city.name}</span>
+              className="flex-1 h-8 rounded-full bg-white/18 border border-white/30 flex items-center gap-2 px-3 min-w-0 hover:bg-white/28 transition-all">
+              <Search className="w-3.5 h-3.5 text-white/70 flex-shrink-0" />
+              <span className="text-xs font-medium text-white truncate">{city.name}</span>
             </button>
             <button onClick={(e) => { e.stopPropagation(); if (failed) { retry(); return } setMenuOpen(v => !v) }}
-              className="w-8 h-8 rounded-full bg-white/55 border border-white/80 grid place-items-center flex-shrink-0 text-gray-500 hover:bg-white/75 transition-all">
+              className="w-8 h-8 rounded-full bg-white/18 border border-white/30 grid place-items-center flex-shrink-0 text-white hover:bg-white/28 transition-all">
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : failed ? <RefreshCw className="w-3.5 h-3.5" />
                 : <MoreVertical className="w-3.5 h-3.5" />}
@@ -199,13 +199,13 @@ export function WeatherWidgetCard({ widget, onUpdate, onRemove, onHeightChange, 
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-2.5 top-11 z-30 w-28 bg-white rounded-xl shadow-lg border border-gray-100 p-1 ctx-menu-in">
+                <div className="absolute right-2.5 top-11 z-30 w-28 rounded-xl shadow-lg border border-white/30 bg-slate-900/55 backdrop-blur-xl p-1 ctx-menu-in">
                   <button onClick={() => { setMenuOpen(false); onPickCity() }}
-                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-gray-800 hover:bg-black/5">
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-white hover:bg-white/12">
                     <span>{t('更换城市')}</span><MapPin className="w-3.5 h-3.5" />
                   </button>
                   <button onClick={doRelocate} disabled={busy}
-                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-gray-800 hover:bg-black/5 disabled:opacity-60">
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-white hover:bg-white/12 disabled:opacity-60">
                     <span>{t('重新定位')}</span>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                   </button>
                 </div>
@@ -215,18 +215,18 @@ export function WeatherWidgetCard({ widget, onUpdate, onRemove, onHeightChange, 
 
           {!data ? (
             <div className="flex-1 flex items-center justify-center min-h-0">
-              {failed ? <span className="text-[11px] text-gray-400">{t('天气数据获取失败')}</span>
-                : <Loader2 className="w-4 h-4 text-gray-300 animate-spin" />}
+              {failed ? <span className="text-[11px] text-white/70">{t('天气数据获取失败')}</span>
+                : <Loader2 className="w-4 h-4 text-white/70 animate-spin" />}
             </div>
           ) : height <= 1 ? (
             /* 1 卡：紧凑单行（与股票/黄金卡同构） */
             <div className="flex-1 flex items-center gap-2.5 min-h-0">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-white/55 border border-white/80">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-white/18 border border-white/30">
                 <span className={iconColor(data.code)}><WeatherIcon code={data.code} isDay={data.isDay} className="w-5 h-5" /></span>
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-gray-800 text-sm truncate">{city.name}</h4>
-                <p className="text-xs text-gray-400 truncate mt-0.5">{t(weatherCodeText(data.code))} {data.temp}°{data.feels != null ? ` · ${t('体感')} ${data.feels}°` : ''}</p>
+                <h4 className="font-semibold text-white text-sm truncate">{city.name}</h4>
+                <p className="text-xs text-white/70 truncate mt-0.5">{t(weatherCodeText(data.code))} {data.temp}°{data.feels != null ? ` · ${t('体感')} ${data.feels}°` : ''}</p>
               </div>
             </div>
           ) : (
@@ -234,16 +234,16 @@ export function WeatherWidgetCard({ widget, onUpdate, onRemove, onHeightChange, 
               {/* 温度主区：线性图标 + 大号细体温度 */}
               <div className="flex items-center gap-3 mt-2 flex-shrink-0 min-w-0">
                 <span className={iconColor(data.code)}><WeatherIcon code={data.code} isDay={data.isDay} className="w-9 h-9" strokeWidth={1.5} /></span>
-                <span className="text-[34px] leading-none font-light text-gray-800 tracking-tight">{data.temp}°</span>
-                <span className="text-xs text-gray-400 self-end mb-1">C</span>
+                <span className="text-[34px] leading-none font-light text-white tracking-tight">{data.temp}°</span>
+                <span className="text-xs text-white/70 self-end mb-1">C</span>
               </div>
 
               {/* 信息行（参考图式两行小字） */}
               <div className="mt-1.5 space-y-0.5 flex-shrink-0 min-w-0">
-                <div className="text-[10px] text-gray-500 truncate">
+                <div className="text-[10px] text-white/75 truncate">
                   {t(weatherCodeText(data.code))} · {t('体感')} {data.feels != null ? `${data.feels}°` : '—'} · {t('湿度')} {data.humidity != null ? `${data.humidity}%` : '—'}
                 </div>
-                <div className="text-[10px] text-gray-400 truncate">
+                <div className="text-[10px] text-white/65 truncate">
                   {t('风速')} {Math.round(data.wind)} km/h{data.daily?.[0]?.sunrise ? ` · ${t('日出')} ${data.daily[0].sunrise} / ${t('日落')} ${data.daily[0].sunset}` : ''}
                 </div>
               </div>
@@ -253,28 +253,28 @@ export function WeatherWidgetCard({ widget, onUpdate, onRemove, onHeightChange, 
                 <div className="flex-1 min-h-0 flex flex-col mt-2">
                   {data.hourly && data.hourly.length > 0 && (
                     <>
-                      <div className="text-[9px] text-gray-400 mb-1 flex-shrink-0">{t('未来八小时')}</div>
+                      <div className="text-[9px] text-white/65 mb-1 flex-shrink-0">{t('未来八小时')}</div>
                       <div className="grid grid-cols-8 gap-px flex-shrink-0">
                         {data.hourly.map((h, i) => (
                           <div key={i} className="flex flex-col items-center gap-0.5 min-w-0">
-                            <span className="text-[8px] text-gray-400 leading-none">{h.time}</span>
+                            <span className="text-[8px] text-white/65 leading-none">{h.time}</span>
                             <span className={iconColor(h.code)}><WeatherIcon code={h.code} isDay={true} className="w-3.5 h-3.5" /></span>
-                            <span className="text-[9px] text-gray-700 font-medium leading-none">{h.temp}°</span>
-                            <span className={`text-[8px] leading-none ${h.pop > 0 ? 'text-blue-400' : 'text-gray-300'}`}>{h.pop}%</span>
+                            <span className="text-[9px] text-white font-medium leading-none">{h.temp}°</span>
+                            <span className={`text-[8px] leading-none ${h.pop > 0 ? 'text-blue-300' : 'text-white/45'}`}>{h.pop}%</span>
                           </div>
                         ))}
                       </div>
                     </>
                   )}
                   {data.daily && data.daily.length > 0 && (
-                    <div className="mt-auto pt-2 border-t border-white/70 space-y-1">
+                    <div className="mt-auto pt-2 border-t border-white/25 space-y-1">
                       {data.daily.map((d, i) => (
                         <div key={i} className="flex items-center gap-1.5 min-w-0">
-                          <span className="w-6 flex-shrink-0 text-[10px] text-gray-600 font-medium">{dayLabel(d.date, t)}</span>
+                          <span className="w-6 flex-shrink-0 text-[10px] text-white/80 font-medium">{dayLabel(d.date, t)}</span>
                           <span className={`${iconColor(d.code)} flex-shrink-0`}><WeatherIcon code={d.code} isDay={true} className="w-3.5 h-3.5" /></span>
-                          <span className="text-[10px] text-gray-600 truncate flex-1">{t(weatherCodeText(d.code))}</span>
-                          <span className="text-[10px] text-gray-500 flex-shrink-0">{d.min}° / {d.max}°</span>
-                          <span className={`text-[9px] flex-shrink-0 w-7 text-right ${d.pop > 0 ? 'text-blue-400' : 'text-gray-300'}`}>{d.pop}%</span>
+                          <span className="text-[10px] text-white/80 truncate flex-1">{t(weatherCodeText(d.code))}</span>
+                          <span className="text-[10px] text-white/70 flex-shrink-0">{d.min}° / {d.max}°</span>
+                          <span className={`text-[9px] flex-shrink-0 w-7 text-right ${d.pop > 0 ? 'text-blue-300' : 'text-white/45'}`}>{d.pop}%</span>
                         </div>
                       ))}
                     </div>

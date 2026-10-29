@@ -1433,7 +1433,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
      )}
     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-gray-800 text-sm truncate">{tool.name}</h4>
+                      <h4 className="font-semibold text-white text-sm truncate">{tool.name}</h4>
                       {tool.desc && <p className="text-xs text-gray-400 truncate mt-0.5">{t(tool.desc)}</p>}
                     </div>
                   </div>
@@ -3641,15 +3641,15 @@ function StockWidgetCard({ widget, quote, onRemove, onHeightChange, onContextMen
         <X className="w-3 h-3" />
       </button>
       <div data-widget-card onContextMenu={onContextMenu}
-        className={`h-full p-3 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md transition-all ring-1 ring-black/[0.03] cursor-default select-none ${height > 1 ? 'flex items-center' : ''}`}>
+        className={`h-full p-3 rounded-2xl bg-white/25 backdrop-blur-xl border border-white/35 hover:bg-white/32 hover:border-white/50 transition-all ring-1 ring-white/20 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.38)] cursor-default select-none text-white ${height > 1 ? 'flex items-center' : ''}`}>
         <div className={`flex items-center gap-3 ${height > 1 ? 'w-full' : ''}`}>
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-purple-100">
-              <TrendingUp className="w-5 h-5 text-purple-600" />
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-white/20">
+              <TrendingUp className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-gray-800 text-sm truncate">{quote?.shortName || widget.name || widget.symbol}</h4>
+            <h4 className="font-semibold text-white text-sm truncate">{quote?.shortName || widget.name || widget.symbol}</h4>
             {isLoaded && (
-              <p className="text-xs text-gray-400 truncate mt-0.5">{quote.currency === 'HKD' ? 'HK$' : quote.currency === 'GBP' ? '£' : quote.currency === 'EUR' ? '€' : '$'}{price?.toFixed(2)}</p>
+              <p className="text-xs text-white/70 truncate mt-0.5">{quote.currency === 'HKD' ? 'HK$' : quote.currency === 'GBP' ? '£' : quote.currency === 'EUR' ? '€' : '$'}{price?.toFixed(2)}</p>
             )}
           </div>
         </div>
@@ -3671,15 +3671,15 @@ function GoldPriceCard({ widget, quote, onRemove, onHeightChange, onContextMenu 
         <X className="w-3 h-3" />
       </button>
       <div data-widget-card onContextMenu={onContextMenu}
-        className={`h-full p-3 rounded-2xl bg-white/70 border border-white/80 hover:bg-white/90 hover:shadow-md transition-all ring-1 ring-black/[0.03] cursor-default select-none ${height > 1 ? 'flex items-center' : ''}`}>
+        className={`h-full p-3 rounded-2xl bg-white/25 backdrop-blur-xl border border-white/35 hover:bg-white/32 hover:border-white/50 transition-all ring-1 ring-white/20 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.38)] cursor-default select-none text-white ${height > 1 ? 'flex items-center' : ''}`}>
         <div className={`flex items-center gap-3 ${height > 1 ? 'w-full' : ''}`}>
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-100">
-              <Gem className="w-5 h-5 text-amber-600" />
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-white/20">
+              <Gem className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-gray-800 text-sm truncate">{widget.name || t('黄金价格')}</h4>
+            <h4 className="font-semibold text-white text-sm truncate">{widget.name || t('黄金价格')}</h4>
             {isLoaded && (
-              <p className="text-xs text-gray-400 truncate mt-0.5">¥{quote?.cnyPerGram?.toFixed(2)}{t('/克')}</p>
+              <p className="text-xs text-white/70 truncate mt-0.5">¥{quote?.cnyPerGram?.toFixed(2)}{t('/克')}</p>
             )}
           </div>
         </div>

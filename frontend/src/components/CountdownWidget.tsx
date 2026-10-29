@@ -203,14 +203,14 @@ export function CountdownWidgetCard({ widget, onUpdate, onRemove, onContextMenu 
         <X className="w-3 h-3" />
       </button>
       <div data-widget-card onContextMenu={onContextMenu} onClick={isBig ? undefined : () => setShowFullModal(true)}
-        className={`h-full flex flex-col rounded-2xl overflow-hidden ring-1 ring-black/[0.04] shadow-sm hover:shadow-md transition-all select-none ${isBig ? '' : 'cursor-pointer'}`}>
+        className={`h-full flex flex-col rounded-2xl overflow-hidden bg-white/25 backdrop-blur-xl border border-white/35 ring-1 ring-white/20 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.38)] hover:bg-white/32 hover:border-white/50 hover:shadow-[0_14px_36px_-14px_rgba(0,0,0,0.45)] transition-all select-none text-white ${isBig ? '' : 'cursor-pointer'}`}>
         {/* 头部：多卡=标题+数量+放大/添加按钮；单卡=最近事项紧凑头部（磨砂材质，透出壁纸） */}
         {isBig ? (
-          <div className="bg-gradient-to-b from-blue-400/80 to-blue-500/70 backdrop-blur-xl text-white flex-shrink-0 flex items-center gap-1.5 px-3 py-2 min-h-[38px]">
+          <div className="flex items-center gap-1.5 px-3 py-2 min-h-[38px] border-b border-white/25 text-white">
             <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />
             <p className="text-[13px] font-semibold flex-1 truncate">{t('倒计时')}</p>
             {upcoming.length > 0 && (
-              <span className="text-[10px] font-medium bg-white/20 px-1.5 py-0.5 rounded-full flex-shrink-0">{upcoming.length}</span>
+              <span className="text-[10px] font-medium bg-white/20 text-white px-1.5 py-0.5 rounded-full flex-shrink-0">{upcoming.length}</span>
             )}
             <button onClick={(e) => { e.stopPropagation(); setShowFullModal(true) }} title={t('查看全部')}
               className="w-5 h-5 rounded-md hover:bg-white/20 flex items-center justify-center flex-shrink-0">
@@ -222,7 +222,7 @@ export function CountdownWidgetCard({ widget, onUpdate, onRemove, onContextMenu 
             </button>
           </div>
         ) : (
-          <div className="relative bg-gradient-to-b from-blue-400/80 to-blue-500/70 backdrop-blur-xl text-white flex-shrink-0 flex items-center justify-center px-2 py-2 min-h-[38px]">
+          <div className="relative flex items-center justify-center px-2 py-2 min-h-[38px] border-b border-white/25 text-white">
             <p className="text-[13px] font-semibold truncate text-center w-full px-4">
               {nearest ? t('{title}还有', { title: nearest.ev.title }) : t('倒计时')}
             </p>
@@ -231,45 +231,45 @@ export function CountdownWidgetCard({ widget, onUpdate, onRemove, onContextMenu 
         )}
         {/* 主体：多卡=全部事项列表（溢出滚动）；单卡=最近事项大数字 */}
         {isBig ? (
-          <div className="flex-1 min-h-0 overflow-y-auto bg-white [&::-webkit-scrollbar]:hidden px-1.5 py-1 space-y-0.5">
+          <div className="flex-1 min-h-0 overflow-y-auto text-white [&::-webkit-scrollbar]:hidden px-1.5 py-1 space-y-0.5">
             {upcoming.length === 0 ? (
               <button onClick={(e) => { e.stopPropagation(); openAdd() }}
-                className="w-full h-full min-h-[60px] flex flex-col items-center justify-center gap-1 text-gray-300 hover:text-blue-400 transition-colors">
+                className="w-full h-full min-h-[60px] flex flex-col items-center justify-center gap-1 text-white/55 hover:text-white transition-colors">
                 <Plus className="w-5 h-5" />
                 <span className="text-[10px]">{t('添加事项')}</span>
               </button>
             ) : upcoming.map(({ ev, occ }) => (
               <div key={ev.id} onClick={(e) => { e.stopPropagation(); openEdit(ev) }}
-                className="group/row flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-blue-50/70 transition-colors cursor-pointer">
+                className="group/row flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-white/12 transition-colors cursor-pointer">
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-700 truncate">{ev.title}</p>
-                  <p className="text-[10px] text-gray-400 truncate">
+                  <p className="text-xs font-medium text-white truncate">{ev.title}</p>
+                  <p className="text-[10px] text-white/70 truncate">
                     {ev.cal === 'lunar' && t('农历 ')}{eventDateLabel(ev, occ.date)}
-                    {repeatTag(ev.repeat) && <span className="ml-1 text-blue-400">{t(repeatTag(ev.repeat))}</span>}
+                    {repeatTag(ev.repeat) && <span className="ml-1 text-white/90">{t(repeatTag(ev.repeat))}</span>}
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0 flex items-baseline">
-                  <span className={`font-bold text-blue-500 leading-none ${occ.days === 0 ? 'text-sm' : 'text-lg'}`}>
+                  <span className={`font-bold text-white leading-none ${occ.days === 0 ? 'text-sm' : 'text-lg'}`}>
                     {occ.days === 0 ? t('今天') : occ.days}
                   </span>
-                  {occ.days !== 0 && <span className="text-[9px] text-gray-400 ml-0.5">{t('天')}</span>}
+                  {occ.days !== 0 && <span className="text-[9px] text-white/70 ml-0.5">{t('天')}</span>}
                 </div>
                 <button onClick={(e) => { e.stopPropagation(); removeEvent(ev.id) }} title={t('删除事项')}
-                  className="opacity-0 group-hover/row:opacity-100 w-5 h-5 rounded-md bg-white border border-gray-200 text-gray-300 hover:text-red-500 hover:border-red-200 flex items-center justify-center flex-shrink-0 transition-all">
+                  className="opacity-0 group-hover/row:opacity-100 w-5 h-5 rounded-md bg-white/15 border border-white/25 text-white/75 hover:text-white hover:bg-white/25 hover:border-white/45 flex items-center justify-center flex-shrink-0 transition-all">
                   <Trash2 className="w-2.5 h-2.5" />
                 </button>
               </div>
             ))}
           </div>
         ) : (
-          <div className="flex-1 min-h-0 flex items-center justify-center bg-white">
+          <div className="flex-1 min-h-0 flex items-center justify-center text-white">
             {nearest ? (
-              <span className={`font-bold text-blue-500 leading-none ${nearest.occ.days === 0 ? 'text-2xl' : nearest.occ.days > 99 ? 'text-2xl' : 'text-4xl'}`}>
+              <span className={`font-bold text-white leading-none ${nearest.occ.days === 0 ? 'text-2xl' : nearest.occ.days > 99 ? 'text-2xl' : 'text-4xl'}`}>
                 {nearest.occ.days === 0 ? t('今天') : nearest.occ.days}
               </span>
             ) : (
               <button onClick={(e) => { e.stopPropagation(); openAdd() }}
-                className="flex flex-col items-center gap-1 text-gray-300 hover:text-blue-400 transition-colors">
+                className="flex flex-col items-center gap-1 text-white/55 hover:text-white transition-colors">
                 <Plus className="w-5 h-5" />
                 <span className="text-[10px]">{t('添加事项')}</span>
               </button>
