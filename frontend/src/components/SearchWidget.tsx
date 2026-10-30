@@ -95,7 +95,7 @@ export function SearchWidgetCard({ channel, onChannelChange, value, onChange }: 
         <input type="text" value={value} onChange={e => onChange(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submit() }}
           placeholder={cur.local ? t('搜索本地工具...') : t('搜索网络内容...')}
-          className="block w-full h-14 sm:h-16 pl-[88px] pr-[72px] bg-white/50 backdrop-blur-md border border-white/60 rounded-full focus:outline-none focus:ring-0 focus:bg-white/80 focus:shadow-[0_10px_32px_rgba(0,0,0,0.16)] transition-all text-base sm:text-lg placeholder-gray-400 text-gray-800 shadow-sm" />
+          className="block w-full h-14 sm:h-16 pl-[88px] pr-[72px] bg-white/50 backdrop-blur-md border border-white/60 rounded-full focus:outline-none focus:bg-white/80 focus-visible:border-blue-400/70 focus-visible:ring-2 focus-visible:ring-[#3050F0]/25 focus:shadow-[0_10px_32px_rgba(0,0,0,0.16)] transition-all text-base sm:text-lg placeholder-gray-400 text-gray-800 shadow-sm" />
         {!value ? (
           <button onClick={submit} title={t('搜索')}
             className="absolute right-0 inset-y-0 flex items-center pr-8 text-gray-400 hover:text-gray-600 transition-colors">

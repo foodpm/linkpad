@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* Browser chrome carries the brand: themed selection + caret. */
+::selection {
+  background-color: rgba(48, 80, 240, 0.16);
+}
+input,
+textarea {
+  caret-color: #3050F0;
+}
+
 /* Admin data tables keep one line per cell and scroll horizontally on narrow screens. */
 .admin-table th,
 .admin-table td {

@@ -324,7 +324,7 @@ export default function AdminPage() {
                           <td className="py-3 px-5 text-gray-400 text-xs">{cat.created_at ? new Date(cat.created_at).toLocaleDateString('zh-CN') : '-'}</td>
                           <td className="py-3 px-5">
                             <div className="flex gap-1.5">
-                              <button onClick={() => { setEditCat(cat); setCatName(cat.name) }} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#eef2ff] text-[#4f6fff] rounded text-xs hover:bg-[#dde4ff] transition-all"><IconEdit /> {t('编辑')}</button>
+                              <button onClick={() => { setEditCat(cat); setCatName(cat.name) }} className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-[#3050F0] rounded text-xs hover:bg-blue-100 transition-all"><IconEdit /> {t('编辑')}</button>
                               <button onClick={() => handleDeleteCategory(cat.id)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> {t('删除')}</button>
                             </div>
                           </td>
@@ -389,7 +389,7 @@ export default function AdminPage() {
                           <td className="py-3 px-5">
                             <div className="flex gap-1.5">
                               <button onClick={() => { setEditTool(tool); setToolName(tool.name); setToolUrl(tool.url); setToolDesc(tool.desc || ''); setToolIcon(tool.icon || ''); setToolCatId(tool.category_id || '') }}
-                                className="flex items-center gap-1 px-2.5 py-1.5 bg-[#eef2ff] text-[#4f6fff] rounded text-xs hover:bg-[#dde4ff] transition-all"><IconEdit /> {t('编辑')}</button>
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-[#3050F0] rounded text-xs hover:bg-blue-100 transition-all"><IconEdit /> {t('编辑')}</button>
                               <button onClick={() => handleDeleteTool(tool.id)} className="flex items-center gap-1 px-2.5 py-1.5 bg-[#fef2f2] text-[#e44040] rounded text-xs hover:bg-[#fde8e8] transition-all"><IconDelete /> {t('删除')}</button>
                             </div>
                           </td>
@@ -607,7 +607,7 @@ export default function AdminPage() {
                           <div className="flex items-center gap-2.5">
                             <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 overflow-hidden"
                               style={r.icon_key ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: r.bg_color || '#3B82F6' }}>
-                              {r.icon_key ? <img src={r.icon_key} className="w-full h-full object-contain p-0.5" /> : (r.icon || r.name?.charAt(0) || '?')}
+                              {r.icon_key ? <img src={r.icon_key} alt="" className="w-full h-full object-contain p-0.5" /> : (r.icon || r.name?.charAt(0) || '?')}
                             </div>
                             <div>
                               <span className="font-medium text-gray-800">{r.name}</span>

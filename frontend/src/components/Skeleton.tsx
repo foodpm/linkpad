@@ -41,7 +41,7 @@ export function HomeSkeleton() {
 /** 仓库详情页骨架：头部大卡片 + 分组链接网格 */
 export function RepoPageSkeleton() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50/80 via-white to-blue-50/80">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50/80 via-white to-sky-50/80">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <Bone className="h-4 w-16 mb-6" />
         {/* 仓库头部 */}
@@ -87,7 +87,7 @@ export function RepoPageSkeleton() {
 /** 用户主页骨架：个人资料卡 + 仓库列表 */
 export function UserPageSkeleton() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-sky-50">
       <div className="max-w-4xl mx-auto px-4 py-8">
         <Bone className="h-4 w-16 mb-6" />
         {/* 资料卡 */}

@@ -43,10 +43,10 @@ export default function UserPage() {
 
   if (loading) return <UserPageSkeleton />
 
-  if (!profile) return <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 flex items-center justify-center text-gray-500">{t('用户不存在')}</div>
+  if (!profile) return <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-sky-50 flex items-center justify-center text-gray-500">{t('用户不存在')}</div>
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-sky-50">
       <div className="max-w-4xl mx-auto px-4 py-8">
         <button onClick={() => navigate('/')} className="flex items-center gap-2 text-gray-400 hover:text-blue-500 mb-6 transition-colors text-sm">
           <Home className="w-4 h-4" /> {t('首页')}
@@ -100,7 +100,7 @@ export default function UserPage() {
                   <div className="flex items-center gap-3 mb-2">
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shadow-sm flex-shrink-0 overflow-hidden"
                       style={repo.icon_key ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: repo.bg_color || '#3B82F6', color: repo.text_color || '#FFFFFF' }}>
-                      {repo.icon_key ? <img src={repo.icon_key} className="w-full h-full object-contain p-1" /> : (repo.icon || repo.name?.charAt(0) || '?')}
+                      {repo.icon_key ? <img src={repo.icon_key} alt="" className="w-full h-full object-contain p-1" /> : (repo.icon || repo.name?.charAt(0) || '?')}
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-gray-800 text-sm truncate">{repo.name}</h3>

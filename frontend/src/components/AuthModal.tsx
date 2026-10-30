@@ -136,7 +136,7 @@ export default function AuthModal({ onClose, initialTab = 'login', initialError 
         <div className="hidden md:block w-[300px] lg:w-[440px] flex-shrink-0 relative">
           <img src="/auth-side.jpg" alt="" className="w-full h-full object-cover" />
           {/* slogan 叠加在插图底部 */}
-          <div className="absolute inset-x-0 bottom-0 pt-16 pb-7 px-6 text-center bg-gradient-to-t from-indigo-600/70 via-indigo-500/30 to-transparent">
+          <div className="absolute inset-x-0 bottom-0 pt-16 pb-7 px-6 text-center bg-gradient-to-t from-[#3050F0]/75 via-[#3050F0]/30 to-transparent">
             <p className="text-white font-bold text-lg">{t('收藏好链接，分享好品味')}</p>
           </div>
         </div>

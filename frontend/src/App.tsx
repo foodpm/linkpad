@@ -1916,9 +1916,9 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
     }`
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 flex font-sans text-gray-800 relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-sky-50 flex font-sans text-gray-800 relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-blue-400/20 blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-purple-400/20 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-amber-200/25 blur-[120px] pointer-events-none" />
       <div className="absolute top-[40%] left-[60%] w-[30%] h-[30%] rounded-full bg-teal-300/20 blur-[80px] pointer-events-none" />
       {/* 壁纸层（盖在渐变背景/光斑之上、内容之下；resolvedUrl 为空时不显示即默认背景） */}
       <div className={`absolute inset-0 bg-cover bg-center pointer-events-none transition-opacity duration-500 ${resolvedUrl && !wallpaperHidden ? 'opacity-100' : 'opacity-0'}`}
@@ -3502,7 +3502,7 @@ function RepoCard({ repo }: { repo: any }) {
       className="group text-left flex flex-col bg-white/20 backdrop-blur-md border border-white/30 p-5 rounded-2xl hover:bg-white/40 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:border-white/50 transition-all duration-300 ring-1 ring-black/[0.03] cursor-pointer">
       <div className="flex items-center gap-3 mb-3">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm overflow-hidden" style={repo.icon_key ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: repo.bg_color || '#3B82F6', color: repo.text_color || '#FFFFFF' }}>
-          {repo.icon_key ? <img src={repo.icon_key} className="w-full h-full object-contain p-1" /> : (repo.icon || repo.name?.charAt(0)?.toUpperCase() || '?')}
+          {repo.icon_key ? <img src={repo.icon_key} alt="" className="w-full h-full object-contain p-1" /> : (repo.icon || repo.name?.charAt(0)?.toUpperCase() || '?')}
         </div>
         <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -3585,7 +3585,7 @@ function DiscoverRepoCard({ repo, user, follows, bookmarks }: { repo: any; user:
       <div className="flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm flex-shrink-0 overflow-hidden"
           style={repo.icon_key ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: repo.bg_color || '#3B82F6', color: repo.text_color || '#FFFFFF' }}>
-          {repo.icon_key ? <img src={repo.icon_key} className="w-full h-full object-contain p-1" /> : (repo.icon || repo.name?.charAt(0)?.toUpperCase() || '?')}
+          {repo.icon_key ? <img src={repo.icon_key} alt="" className="w-full h-full object-contain p-1" /> : (repo.icon || repo.name?.charAt(0)?.toUpperCase() || '?')}
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-white text-sm truncate leading-tight">{repo.name}</h3>

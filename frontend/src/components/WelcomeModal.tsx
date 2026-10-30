@@ -9,7 +9,7 @@ interface Props {
 
 const features = [
   { icon: LayoutGrid, title: '极简导航首页', desc: '分类收纳常用链接，拖拽排序、自定义图标、密码保护', color: 'text-blue-500 bg-blue-50' },
-  { icon: FolderHeart, title: '链接仓库 & 发现', desc: '创建公开/私密仓库，浏览社区仓库，关注收藏一键同步首页', color: 'text-purple-500 bg-purple-50' },
+  { icon: FolderHeart, title: '链接仓库 & 发现', desc: '创建公开/私密仓库，浏览社区仓库，关注收藏一键同步首页', color: 'text-blue-600 bg-blue-50' },
   { icon: CandlestickChart, title: '股票 · 黄金小组件', desc: '实时行情卡片，自由拖入任意分类，行情自动刷新', color: 'text-amber-500 bg-amber-50' },
   { icon: CheckSquare, title: '待办事项', desc: '内置 Todo 面板，轻松管理每天的任务', color: 'text-emerald-500 bg-emerald-50' },
   { icon: Search, title: '搜索直达', desc: '顶部搜索框，本地工具与网络内容一键切换', color: 'text-sky-500 bg-sky-50' },
@@ -56,7 +56,7 @@ export default function WelcomeModal({ onClose, onRegister }: Props) {
         </div>
 
         {/* 插件下载 */}
-        <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-100/60 p-4 mb-6">
+        <div className="rounded-2xl bg-blue-50 border border-blue-100/60 p-4 mb-6">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center text-white flex-shrink-0">
               <Download className="w-4 h-4" />
@@ -85,7 +85,7 @@ export default function WelcomeModal({ onClose, onRegister }: Props) {
 
         {/* 立即注册 */}
         <button onClick={onRegister}
-          className="w-full h-12 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold text-base transition-all shadow-lg shadow-blue-500/20">
+          className="w-full h-12 rounded-2xl bg-[#3050F0] hover:bg-[#2440d0] text-white font-semibold text-base transition-all shadow-lg shadow-[#3050F0]/20">
           {t('立即注册')}
         </button>
         <p className="text-xs text-gray-400 text-center mt-3">{t('注册后可创建链接仓库、关注社区仓库，配置云端同步')}</p>

@@ -510,7 +510,7 @@ export default function RepoPage() {
 
   if (needPassword) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-sky-50 flex items-center justify-center">
         <div className="bg-white/30 backdrop-blur-xl rounded-3xl border border-white/60 p-8 w-full max-w-sm mx-4">
           <div className="text-center mb-6"><LockIcon className="w-12 h-12 text-blue-400 mx-auto mb-3" /><h2 className="text-xl font-bold text-gray-800">{t('需要密码')}</h2><p className="text-sm text-gray-500 mt-1">{t('此仓库需要密码才能访问')}</p></div>
           <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={t('输入访问密码')} className="w-full h-12 px-4 mb-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
@@ -520,12 +520,12 @@ export default function RepoPage() {
     )
   }
 
-  if (!repo) return <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 flex items-center justify-center text-gray-500">{t('仓库不存在')}</div>
+  if (!repo) return <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-sky-50 flex items-center justify-center text-gray-500">{t('仓库不存在')}</div>
 
   const groups = groupedLinks()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50/80 via-white to-blue-50/80">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50/80 via-white to-sky-50/80">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         {/* Back button */}
         <button onClick={() => navigate('/')}
@@ -542,7 +542,7 @@ export default function RepoPage() {
               <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center text-3xl sm:text-4xl font-bold flex-shrink-0 overflow-hidden ring-2 ring-gray-200/60"
                 style={repo.icon_key ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: repo.bg_color || '#3B82F6', color: repo.text_color || '#FFFFFF' }}>
                 {repo.icon_key ? (
-                  <img src={repo.icon_key} className="w-full h-full object-contain p-2" />
+                  <img src={repo.icon_key} alt="" className="w-full h-full object-contain p-2" />
                 ) : (
                   repo.icon || repo.name?.charAt(0) || '?'
                 )}
@@ -562,7 +562,7 @@ export default function RepoPage() {
                         ...(repo.members || []).slice(0, 4)
                       ].map((p: any) => (
                         <button key={p.id} onClick={() => navigate(`/user/${p.id}`)}
-                          className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-[9px] text-white font-bold ring-2 ring-gray-200/60 overflow-hidden hover:ring-blue-300 transition-all hover:z-10 relative"
+                          className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-[9px] text-white font-bold ring-2 ring-gray-200/60 overflow-hidden hover:ring-blue-300 transition-all hover:z-10 relative"
                           title={p.nickname}>
                           {p.avatar_url ? (
                             <img src={p.avatar_url} className="w-full h-full object-cover" />
@@ -680,7 +680,7 @@ export default function RepoPage() {
               {repo.members?.map((m: any) => (
                 <div key={m.id}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/40 text-gray-500 text-xs border border-white/50">
-                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-[7px] text-white font-bold overflow-hidden">
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-[7px] text-white font-bold overflow-hidden">
                     {m.avatar_url ? (
                       <img src={m.avatar_url} className="w-full h-full object-cover" />
                     ) : (
