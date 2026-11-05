@@ -27,10 +27,16 @@ self.addEventListener('activate', (event) => {
   self.clients.claim()
 })
 
-// Stale-while-revalidate: serve from cache instantly, refresh in background
+// Stale-while-revalidate: serve from cache instantly, refresh in background.
+// Only top-level navigations to the site root are intercepted; every other
+// request (subresources, non-GET, other paths) passes through untouched.
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
-  if (url.hostname !== HOST) return
+  const isRootNavigation =
+    event.request.mode === 'navigate' &&
+    event.request.method === 'GET' &&
+    url.pathname === '/'
+  if (!isRootNavigation || url.hostname !== HOST) return
 
   event.respondWith(
     caches.open(CACHE).then(async (cache) => {
@@ -38,7 +44,8 @@ self.addEventListener('fetch', (event) => {
 
       const updateCache = fetch(event.request)
         .then((response) => {
-          if (response.ok) {
+          const contentType = response.headers.get('content-type') || ''
+          if (response.ok && contentType.startsWith('text/html')) {
             const clone = response.clone()
             cache.put(event.request, clone)
           }

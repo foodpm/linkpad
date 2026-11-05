@@ -325,6 +325,7 @@ export const en: Record<string, string> = {
   '访问密码': 'Access password',
   '访问密码 *': 'Access password *',
   '输入访问密码': 'Enter access password',
+  '密码留空则不修改密码': 'Leave blank to keep current password; enter a value to change it',
   '需要密码': 'Password required',
   '已加密，请输入密码': 'Encrypted — enter password',
   '此分类已加密，点击取消加密': 'Category encrypted — click to unlock',

@@ -13,15 +13,31 @@ function setToken(token: string | null) {
 
 export { getToken, setToken, API_BASE }
 
-// 新标签页打开链接；/api/pdfs/ 目标在新标签页里没有 Authorization 头，
-// 追加一次性带上 JWT 查询参数，由后端校验
-export function openLinkUrl(url: string) {
-  const token = getToken()
-  const pdfMatch = /\/api\/pdfs\/([0-9a-f-]{36})/.exec(url || '')
-  const target = pdfMatch && token
-    ? `${API_BASE}/api/pdfs/${pdfMatch[1]}?t=${encodeURIComponent(token)}`
-    : url
-  window.open(target, '_blank', 'noopener,noreferrer')
+// 媒体短时令牌：为单个 PDF 向后端换取 5 分钟有效的短令牌，主 JWT 不再进入任何 URL
+async function fetchMediaToken(pdfId: string): Promise<string> {
+  const data = await request('/api/media-token', {
+    method: 'POST',
+    body: JSON.stringify({ pdf_id: pdfId }),
+  }) as { token: string }
+  return data.token
+}
+
+// 新标签页打开链接。安全约束：
+// 1) scheme 白名单守卫：仅放行 http/https 绝对地址与 /api/pdfs/ 相对路径，javascript:/data: 等一律不打开
+// 2) PDF 链接先换取短时媒体令牌再打开；换取失败则回退为直接打开原 URL
+export async function openLinkUrl(url: string) {
+  const u = (url || '').trim()
+  const isAllowed = /^https?:\/\//i.test(u) || u.startsWith('/api/pdfs/')
+  if (!isAllowed) return
+  const pdfMatch = /\/api\/pdfs\/([0-9a-f-]{36})/.exec(u)
+  if (pdfMatch) {
+    try {
+      const mediaToken = await fetchMediaToken(pdfMatch[1])
+      window.open(`${API_BASE}/api/pdfs/${pdfMatch[1]}?t=${encodeURIComponent(mediaToken)}`, '_blank', 'noopener,noreferrer')
+      return
+    } catch { /* 换取短令牌失败：回退为直接打开原 URL */ }
+  }
+  window.open(u, '_blank', 'noopener,noreferrer')
 }
 
 async function request(path: string, options: RequestInit = {}) {
@@ -48,6 +64,21 @@ async function request(path: string, options: RequestInit = {}) {
     ;(e as any).status = res.status
     throw e
   }
+}
+
+// 已解锁密码仓库的密码缓存（repoId→password）：避免密码经 URL query 传输，
+// 并让后续同仓库请求能自动附带 X-Repo-Password 头；登出时清空
+const unlockedRepoPasswords = new Map<string, string>()
+
+function withRepoPasswordHeaders(repoId: string, options: RequestInit = {}): RequestInit {
+  const pw = unlockedRepoPasswords.get(repoId)
+  if (!pw) return options
+  const headers = { ...(options.headers as Record<string, string>), 'X-Repo-Password': pw }
+  return { ...options, headers }
+}
+
+function clearRepoPasswordCache() {
+  unlockedRepoPasswords.clear()
 }
 
 // Auth
@@ -93,35 +124,43 @@ export const repos = {
   list: () => request('/api/repos'),
   create: (data: { name: string; description?: string; visibility?: string; password?: string; categories?: string[] }) =>
     request('/api/repos', { method: 'POST', body: JSON.stringify(data) }),
-  get: (id: string, password?: string) =>
-    request(`/api/repos/${id}${password ? `?password=${encodeURIComponent(password)}` : ''}`),
+  get: async (id: string, password?: string) => {
+    // 密码仅经请求头传输（X-Repo-Password），不再拼入 URL query
+    const headers = password ? { 'X-Repo-Password': password } : undefined
+    const r = await request(`/api/repos/${id}`, headers ? { headers } : undefined)
+    if (password) unlockedRepoPasswords.set(id, password)
+    return r
+  },
   update: (id: string, data: any) =>
-    request(`/api/repos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    request(`/api/repos/${id}`, withRepoPasswordHeaders(id, { method: 'PUT', body: JSON.stringify(data) })),
   delete: (id: string) =>
-    request(`/api/repos/${id}`, { method: 'DELETE' }),
+    request(`/api/repos/${id}`, withRepoPasswordHeaders(id, { method: 'DELETE' })),
   links: {
-    list: (id: string) => request(`/api/repos/${id}/links`),
+    list: (id: string) => request(`/api/repos/${id}/links`, withRepoPasswordHeaders(id)),
     create: (id: string, data: { name: string; url: string; icon?: string; category_id?: string; category_ids?: string[]; desc?: string }) =>
-      request(`/api/repos/${id}/links`, { method: 'POST', body: JSON.stringify(data) }),
+      request(`/api/repos/${id}/links`, withRepoPasswordHeaders(id, { method: 'POST', body: JSON.stringify(data) })),
     duplicates: (id: string, url: string, exclude?: string) =>
-      request(`/api/repos/${id}/links/duplicates?url=${encodeURIComponent(url)}${exclude ? `&exclude=${encodeURIComponent(exclude)}` : ''}`),
+      request(`/api/repos/${id}/links/duplicates?url=${encodeURIComponent(url)}${exclude ? `&exclude=${encodeURIComponent(exclude)}` : ''}`, withRepoPasswordHeaders(id)),
+    reorder: (repoId: string, order: { id: string; sort_order: number }[]) =>
+      request(`/api/repos/${repoId}/links/reorder`, withRepoPasswordHeaders(repoId, { method: 'PUT', body: JSON.stringify({ order }) })),
+    checkDead: (repoId: string) => request(`/api/repos/${repoId}/links/check`, withRepoPasswordHeaders(repoId, { method: 'POST' })),
   },
   categories: {
     add: (id: string, name: string) =>
-      request(`/api/repos/${id}/categories`, { method: 'POST', body: JSON.stringify({ name }) }),
+      request(`/api/repos/${id}/categories`, withRepoPasswordHeaders(id, { method: 'POST', body: JSON.stringify({ name }) })),
     remove: (id: string, name: string) =>
-      request(`/api/repos/${id}/categories/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+      request(`/api/repos/${id}/categories/${encodeURIComponent(name)}`, withRepoPasswordHeaders(id, { method: 'DELETE' })),
     rename: (id: string, oldName: string, newName: string) =>
-      request(`/api/repos/${id}/categories/${encodeURIComponent(oldName)}`, { method: 'PUT', body: JSON.stringify({ name: newName }) }),
+      request(`/api/repos/${id}/categories/${encodeURIComponent(oldName)}`, withRepoPasswordHeaders(id, { method: 'PUT', body: JSON.stringify({ name: newName }) })),
     reorder: (id: string, order: { name: string; sort_order: number }[]) =>
-      request(`/api/repos/${id}/categories/reorder`, { method: 'PUT', body: JSON.stringify({ order }) }),
+      request(`/api/repos/${id}/categories/reorder`, withRepoPasswordHeaders(id, { method: 'PUT', body: JSON.stringify({ order }) })),
   },
   members: {
-    list: (id: string) => request(`/api/repos/${id}/members`),
+    list: (id: string) => request(`/api/repos/${id}/members`, withRepoPasswordHeaders(id)),
     add: (id: string, data: { nickname?: string; email?: string }) =>
-      request(`/api/repos/${id}/members`, { method: 'POST', body: JSON.stringify(data) }),
+      request(`/api/repos/${id}/members`, withRepoPasswordHeaders(id, { method: 'POST', body: JSON.stringify(data) })),
     remove: (id: string, userId: string) =>
-      request(`/api/repos/${id}/members/${userId}`, { method: 'DELETE' }),
+      request(`/api/repos/${id}/members/${userId}`, withRepoPasswordHeaders(id, { method: 'DELETE' })),
   },
   uploadIcon: async (id: string, file: File): Promise<string> => {
     const token = getToken()
@@ -225,6 +264,16 @@ export function invalidateWallpaperUrl(id: string) {
   }
 }
 
+// 登出 / 401 清理：壁纸缓存含个人图片，连同内存 blob URL 一起删除，避免跨账号残留
+export function clearUserMediaCaches() {
+  wallpaperBlobUrls.forEach(p => p.then(url => { if (url) URL.revokeObjectURL(url) }).catch(() => {}))
+  wallpaperBlobUrls.clear()
+  clearRepoPasswordCache()
+  if (typeof caches !== 'undefined') {
+    caches.delete(WALLPAPER_CACHE).catch(() => {})
+  }
+}
+
 // Links
 export const links = {
   update: (id: string, data: { name?: string; url?: string; icon?: string; category_id?: string; category_ids?: string[]; bg_color?: string; text_color?: string; desc?: string }) =>
@@ -265,18 +314,18 @@ export const follows = {
   },
   repo: {
     follow: (repoId: string, category_id?: string, skip_link_ids?: string[]) =>
-      request(`/api/follows/repo/${repoId}`, { method: 'POST', body: JSON.stringify({ category_id, skip_link_ids }) }),
-    unfollow: (repoId: string) => request(`/api/follows/repo/${repoId}`, { method: 'DELETE' }),
-    duplicates: (repoId: string) => request(`/api/follows/repo/${repoId}/duplicates`),
-    view: (repoId: string) => request(`/api/follows/repo/${repoId}/view`, { method: 'POST' }),
+      request(`/api/follows/repo/${repoId}`, withRepoPasswordHeaders(repoId, { method: 'POST', body: JSON.stringify({ category_id, skip_link_ids }) })),
+    unfollow: (repoId: string) => request(`/api/follows/repo/${repoId}`, withRepoPasswordHeaders(repoId, { method: 'DELETE' })),
+    duplicates: (repoId: string) => request(`/api/follows/repo/${repoId}/duplicates`, withRepoPasswordHeaders(repoId)),
+    view: (repoId: string) => request(`/api/follows/repo/${repoId}/view`, withRepoPasswordHeaders(repoId, { method: 'POST' })),
   },
 }
 
 // Bookmarks
 export const bookmarks = {
   repo: {
-    add: (repoId: string) => request(`/api/bookmarks/repo/${repoId}`, { method: 'POST' }),
-    remove: (repoId: string) => request(`/api/bookmarks/repo/${repoId}`, { method: 'DELETE' }),
+    add: (repoId: string) => request(`/api/bookmarks/repo/${repoId}`, withRepoPasswordHeaders(repoId, { method: 'POST' })),
+    remove: (repoId: string) => request(`/api/bookmarks/repo/${repoId}`, withRepoPasswordHeaders(repoId, { method: 'DELETE' })),
   },
   tool: {
     add: (toolId: string) => request(`/api/bookmarks/tool/${toolId}`, { method: 'POST' }),

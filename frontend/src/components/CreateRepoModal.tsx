@@ -179,7 +179,7 @@ export default function CreateRepoModal({ onClose, onCreated }: Props) {
           {visibility === 'password' && (
             <div>
               <label className="text-xs text-gray-500 mb-1 block">{t('访问密码 *')}</label>
-              <input type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder={t('设置访问密码')}
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={t('设置访问密码')}
                 className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800 placeholder-gray-400" />
             </div>
           )}

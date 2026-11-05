@@ -9,6 +9,9 @@
   "background": {
     "service_worker": "sw.js"
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; frame-src https://linkpad.site; upgrade-insecure-requests"
+  },
   "host_permissions": [
     "https://linkpad.site/*"
   ],

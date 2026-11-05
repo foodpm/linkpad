@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
-import { auth, getToken, setToken } from './api'
+import { auth, getToken, setToken, clearUserMediaCaches } from './api'
 
 export interface User {
   id: string
@@ -44,13 +44,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Google 登录回跳：URL 上带 google_token，落库到 localStorage 并清理 URL
-    const url = new URL(window.location.href)
-    const googleToken = url.searchParams.get('google_token')
-    if (googleToken) {
+    // Google 登录回跳：token 经 URL fragment 传输（#google_token=<jwt>），不进 query。
+    // 读到后立即用 replaceState 清掉地址栏中的 fragment，避免泄露到历史记录/Referer
+    const fragmentMatch = /[#&]google_token=([^&]+)/.exec(window.location.hash || '')
+    if (fragmentMatch) {
+      let googleToken = fragmentMatch[1]
+      try { googleToken = decodeURIComponent(googleToken) } catch { /* 非法编码则按原值使用 */ }
       setToken(googleToken)
-      url.searchParams.delete('google_token')
-      window.history.replaceState(null, '', url.pathname + url.search + url.hash)
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
     }
 
     if (getToken()) {
@@ -59,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .catch((e: any) => {
           // 仅在 token 确认无效/过期(401)时清除登录态；
           // 网络抖动、部署瞬间等临时故障保留 token，避免误登出
-          if (e?.status === 401) { setToken(null); setUser(null); cacheUser(null) }
+          if (e?.status === 401) { setToken(null); setUser(null); cacheUser(null); clearUserMediaCaches() }
         })
         .finally(() => setLoading(false))
     } else {
@@ -86,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null)
     setUser(null)
     cacheUser(null)
+    clearUserMediaCaches()
   }
 
   const refreshUser = async () => {

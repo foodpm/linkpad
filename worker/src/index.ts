@@ -25,6 +25,7 @@ type Bindings = {
   BROWSER: unknown
   PREVIEW_RL: RateLimitBinding
   EXTENSION_RL: RateLimitBinding
+  AUTH_RL: RateLimitBinding
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
 }
@@ -58,8 +59,9 @@ type ActivityEvent = 'page_view' | 'scroll' | 'click' | 'search' | 'auth'
 const app = new Hono<{ Bindings: Bindings; Variables: { lang: Lang } }>()
 
 app.onError((err, c) => {
+  // 内部错误细节只进日志，不回传客户端（避免泄露实现信息）
   console.error('Unhandled error:', err)
-  return c.json({ error: err.message || 'Internal Server Error' }, 500)
+  return c.json({ error: 'Internal Server Error' }, 500)
 })
 
 // API 语言解析：X-Lang 头（前端携带用户选择）> Accept-Language > zh
@@ -69,27 +71,74 @@ app.use('/api/*', async (c, next) => {
 })
 
 app.use('/*', cors({
-  origin: ['https://linkpad.site', 'https://www.linkpad.site', 'http://localhost:3000', 'http://localhost:3001'],
+  origin: ['https://linkpad.site', 'https://www.linkpad.site'],
   credentials: true
 }))
 
-// Allow iframe embedding (for browser extension new tab)
+// 安全响应头：
+// - 允许浏览器扩展新标签页 iframe 嵌入（chrome-extension: scheme 白名单），其余站点禁止嵌入（防点击劫持）
+// - nosniff 防止上传内容被浏览器嗅探成 HTML/脚本；Referrer-Policy 收敛引用泄露
 app.use('/*', async (c, next) => {
   await next()
   c.res.headers.delete('X-Frame-Options')
-  const csp = c.res.headers.get('Content-Security-Policy')
-  if (csp) {
-    c.res.headers.set('Content-Security-Policy', csp.replace(/frame-ancestors\s+[^;]+;?/g, ''))
+  c.res.headers.set('X-Content-Type-Options', 'nosniff')
+  c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  const existing = c.res.headers.get('Content-Security-Policy')
+  if (existing) {
+    c.res.headers.set('Content-Security-Policy', `${existing.replace(/frame-ancestors\s+[^;]+;?/g, '')}frame-ancestors 'self' chrome-extension:`)
+  } else {
+    c.res.headers.set('Content-Security-Policy', "frame-ancestors 'self' chrome-extension:")
   }
 })
 
 // ==================== Auth Helpers ====================
 
-async function hashPassword(password: string, secret: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(password + secret)
-  const hash = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
+const PBKDF2_ITERATIONS = 100_000
+
+function bytesToB64url(bytes: Uint8Array): string {
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function b64urlToBytes(s: string): Uint8Array {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/')
+  const bin = atob(b64 + '='.repeat((4 - b64.length % 4) % 4))
+  return Uint8Array.from(bin, ch => ch.charCodeAt(0))
+}
+
+function hex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function pbkdf2Bits(password: string, salt: Uint8Array, iterations: number): Promise<ArrayBuffer> {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits'])
+  return crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256)
+}
+
+// 密码哈希：PBKDF2-SHA256（10 万次迭代 + 每用户随机盐）。格式 pbkdf2$<iter>$<salt>$<hash>
+async function hashPassword(password: string, _secret?: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const bits = new Uint8Array(await pbkdf2Bits(password, salt, PBKDF2_ITERATIONS))
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${bytesToB64url(salt)}$${bytesToB64url(bits)}`
+}
+
+// 校验密码：新格式走 PBKDF2；旧格式（单轮 SHA-256(password+secret)）兼容比对，
+// 命中旧格式时返回 upgrade 值，调用方应在验证成功后写回，逐步迁移到 PBKDF2。
+async function verifyPassword(password: string, stored: string, secret: string): Promise<{ ok: boolean; upgrade?: string }> {
+  if (typeof stored === 'string' && stored.startsWith('pbkdf2$')) {
+    const [, iterStr, saltB64, hashB64] = stored.split('$')
+    const iterations = parseInt(iterStr, 10)
+    if (!iterations || !saltB64 || !hashB64) return { ok: false }
+    const bits = new Uint8Array(await pbkdf2Bits(password, b64urlToBytes(saltB64), iterations))
+    return { ok: hex(bits) === hashB64 }
+  }
+  // 旧格式兼容
+  const data = new TextEncoder().encode(password + secret)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  const legacy = hex(new Uint8Array(digest))
+  if (legacy !== stored) return { ok: false }
+  return { ok: true, upgrade: await hashPassword(password) }
 }
 
 async function signJWT(payload: Record<string, unknown>, secret: string): Promise<string> {
@@ -122,7 +171,9 @@ async function getUser(c: any): Promise<User | null> {
   if (!auth?.startsWith('Bearer ')) return null
   const payload = await verifyJWT(auth.slice(7), c.env.JWT_SECRET)
   if (!payload || !payload.sub) return null
-  const user = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url FROM users WHERE id = ?').bind(payload.sub).first()
+  // status 校验：被禁用的账户其已签发 token 立即失效
+  const user = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url, status FROM users WHERE id = ?').bind(payload.sub).first() as any
+  if (!user || user.status === 'disabled') return null
   return user as User | null
 }
 
@@ -253,6 +304,15 @@ function normalizeUrl(u: string): string {
   return (u || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '')
 }
 
+// 链接地址 scheme 白名单：仅 http(s)，杜绝 javascript:/data:/vbscript: 等进入 href 造成 XSS
+function isSafeHttpUrl(u: unknown): boolean {
+  if (typeof u !== 'string' || !u.trim()) return false
+  try {
+    const parsed = new URL(u.trim())
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch { return false }
+}
+
 // 提取域名（基于 normalizeUrl：去协议/www 后取第一段路径之前的部分），用于同域名兜底查重
 function urlDomain(u: string): string {
   const n = normalizeUrl(u)
@@ -330,38 +390,54 @@ async function seedNewUser(db: D1Database, userId: string) {
   }
 }
 
+// 登录/注册/重置等敏感接口的 IP 级限流（AUTH_RL 绑定缺失时放行，不阻塞服务）
+async function limitAuth(c: any): Promise<boolean> {
+  if (!c.env.AUTH_RL) return true
+  const { success } = await c.env.AUTH_RL.limit({ key: c.req.header('cf-connecting-ip') || 'anon' })
+  return success
+}
+
 app.post('/api/auth/register', async (c) => {
+  if (!(await limitAuth(c))) return c.json({ error: T(c, '请求过于频繁，请稍后再试') }, 429)
   const { email, password, nickname } = await c.req.json()
   if (!email || !password) return c.json({ error: T(c, '邮箱和密码不能为空') }, 400)
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ error: T(c, '邮箱格式不正确') }, 400)
   if (password.length < 6) return c.json({ error: T(c, '密码至少6位') }, 400)
 
-  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
+  // 邮箱统一小写入库；查重忽略大小写，防止抢注大小写变体（邮箱实际投递不区分大小写）
+  const emailNorm = String(email).trim().toLowerCase()
+  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').bind(emailNorm).first()
   if (existing) return c.json({ error: T(c, '该邮箱已注册') }, 409)
 
   const id = crypto.randomUUID()
-  const hash = await hashPassword(password, c.env.JWT_SECRET)
-  const nick = nickname || email.split('@')[0]
+  const hash = await hashPassword(password)
+  const nick = (nickname || emailNorm.split('@')[0]).slice(0, 40)
 
-  await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, nickname) VALUES (?, ?, ?, ?)').bind(id, email, hash, nick).run()
+  await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, nickname) VALUES (?, ?, ?, ?)').bind(id, emailNorm, hash, nick).run()
 
   await seedNewUser(c.env.DB, id)
   await recordDailyActivity(c.env.DB, id, 'auth')
 
-  const token = await signJWT({ sub: id, email }, c.env.JWT_SECRET)
-  return c.json({ token, user: { id, email, nickname: nick, avatar_url: '' } })
+  const token = await signJWT({ sub: id, email: emailNorm }, c.env.JWT_SECRET)
+  return c.json({ token, user: { id, email: emailNorm, nickname: nick, avatar_url: '' } })
 })
 
 app.post('/api/auth/login', async (c) => {
+  if (!(await limitAuth(c))) return c.json({ error: T(c, '请求过于频繁，请稍后再试') }, 429)
   const { email, password } = await c.req.json()
   if (!email || !password) return c.json({ error: T(c, '请输入邮箱和密码') }, 400)
 
-  const user = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url, password_hash, status FROM users WHERE email = ?').bind(email).first() as any
-  if (!user) return c.json({ error: T(c, '邮箱未注册') }, 401)
-  if (user.status === 'disabled') return c.json({ error: T(c, '账户已被禁用') }, 403)
+  // 邮箱忽略大小写匹配；错误信息统一，不给邮箱枚举探针
+  const user = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url, password_hash, status FROM users WHERE email = ? COLLATE NOCASE').bind(String(email).trim()).first() as any
+  if (!user || user.status === 'disabled') return c.json({ error: T(c, '邮箱或密码错误') }, 401)
 
-  const hash = await hashPassword(password, c.env.JWT_SECRET)
-  if (hash !== user.password_hash) return c.json({ error: T(c, '密码错误') }, 401)
+  const { ok, upgrade } = await verifyPassword(password, user.password_hash, c.env.JWT_SECRET)
+  if (!ok) return c.json({ error: T(c, '邮箱或密码错误') }, 401)
+
+  // 旧格式哈希在登录成功时自动升级为 PBKDF2
+  if (upgrade) {
+    await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(upgrade, user.id).run()
+  }
 
   await recordDailyActivity(c.env.DB, user.id, 'auth')
   const token = await signJWT({ sub: user.id, email: user.email }, c.env.JWT_SECRET)
@@ -422,6 +498,13 @@ app.post('/api/extension/track', async (c) => {
   }
 
   const version = String(body.version || '').slice(0, 32)
+  // use 事件按 install_id 每小时最多计 1 次（last_seen_at 一小时内则不累加），防脚本刷量
+  // install/link 事件不稀释（安装与用户绑定各自有唯一约束）
+  const countUse = event === 'use'
+    ? Number(await c.env.DB.prepare(
+        "SELECT 1 as fresh FROM extension_installs WHERE install_id = ? AND (last_event != 'use' OR last_seen_at < datetime('now', '-1 hour'))"
+      ).bind(installId).first() ? 1 : 0)
+    : 0
   await c.env.DB.prepare(
     `INSERT INTO extension_installs (install_id, version, first_seen_at, last_seen_at, last_event, use_count)
      VALUES (?, ?, datetime('now'), datetime('now'), ?, ?)
@@ -430,7 +513,7 @@ app.post('/api/extension/track', async (c) => {
        last_seen_at = datetime('now'),
        last_event = excluded.last_event,
        use_count = extension_installs.use_count + excluded.use_count`
-  ).bind(installId, version, event, event === 'use' ? 1 : 0).run()
+  ).bind(installId, version, event, countUse).run()
 
   const user = await getUser(c)
   if (event === 'link' && !user) return c.json({ error: T(c, '未登录') }, 401)
@@ -449,26 +532,31 @@ app.post('/api/extension/track', async (c) => {
 
 // 发送密码重置验证码
 app.post('/api/auth/reset-code', async (c) => {
+  if (!(await limitAuth(c))) return c.json({ error: T(c, '请求过于频繁，请稍后再试') }, 429)
   const { email } = await c.req.json()
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ error: T(c, '邮箱格式不正确') }, 400)
 
-  const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
-  if (!user) return c.json({ error: T(c, '该邮箱未注册') }, 404)
+  // 防邮箱枚举：无论邮箱是否注册，对外一律返回 success（仅注册用户真实发信）
+  const emailNorm = String(email).trim().toLowerCase()
+  const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').bind(emailNorm).first()
+  if (user) {
+    // 频率限制：同一邮箱 60 秒内只能发送一次
+    const now = Math.floor(Date.now() / 1000)
+    const existing = await c.env.DB.prepare('SELECT created_at FROM password_reset_codes WHERE email = ? COLLATE NOCASE').bind(emailNorm).first() as any
+    if (existing && now - existing.created_at < 60) return c.json({ error: T(c, '发送太频繁，请 1 分钟后再试') }, 429)
 
-  // 频率限制：同一邮箱 60 秒内只能发送一次
-  const now = Math.floor(Date.now() / 1000)
-  const existing = await c.env.DB.prepare('SELECT created_at FROM password_reset_codes WHERE email = ?').bind(email).first() as any
-  if (existing && now - existing.created_at < 60) return c.json({ error: T(c, '发送太频繁，请 1 分钟后再试') }, 429)
+    // 密码学安全随机 6 位数字验证码
+    const buf = new Uint32Array(1)
+    crypto.getRandomValues(buf)
+    const code = String(buf[0] % 1000000).padStart(6, '0')
+    const expiresAt = now + 600
+    await c.env.DB.prepare(
+      `INSERT INTO password_reset_codes (email, code, expires_at, attempts, created_at) VALUES (?, ?, ?, 0, ?)
+       ON CONFLICT(email) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at, attempts = 0, created_at = excluded.created_at`
+    ).bind(emailNorm, code, expiresAt, now).run()
 
-  const code = String(Math.floor(100000 + Math.random() * 900000))
-  const expiresAt = now + 600
-  await c.env.DB.prepare(
-    `INSERT INTO password_reset_codes (email, code, expires_at, attempts, created_at) VALUES (?, ?, ?, 0, ?)
-     ON CONFLICT(email) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at, attempts = 0, created_at = excluded.created_at`
-  ).bind(email, code, expiresAt, now).run()
-
-  const text = T(c, '您正在重置 LinkPad 账户密码。\n\n验证码：{code}\n\n验证码 10 分钟内有效。如果这不是您本人的操作，请忽略此邮件。', { code })
-  const html = `<div style="max-width:480px;margin:0 auto;padding:32px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;">
+    const text = T(c, '您正在重置 LinkPad 账户密码。\n\n验证码：{code}\n\n验证码 10 分钟内有效。如果这不是您本人的操作，请忽略此邮件。', { code })
+    const html = `<div style="max-width:480px;margin:0 auto;padding:32px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;">
   <h2 style="margin:0 0 16px;color:#1f2937;font-size:20px;">${T(c, 'LinkPad 密码重置')}</h2>
   <p style="margin:0 0 24px;color:#4b5563;font-size:14px;line-height:1.6;">${T(c, '您正在重置 LinkPad 账户密码，请使用以下验证码完成重置：')}</p>
   <div style="background:#f3f4f6;border-radius:12px;padding:16px;text-align:center;margin-bottom:24px;">
@@ -477,38 +565,42 @@ app.post('/api/auth/reset-code', async (c) => {
   <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.6;">${T(c, '验证码 10 分钟内有效。如果这不是您本人的操作，请忽略此邮件。')}</p>
 </div>`
 
-  try {
-    await sendEmail(c.env, email, T(c, 'LinkPad 密码重置验证码'), text, html)
-  } catch (e) {
-    console.error('发送重置邮件失败:', e)
-    return c.json({ error: T(c, '邮件发送失败，请稍后再试') }, 500)
+    try {
+      await sendEmail(c.env, emailNorm, T(c, 'LinkPad 密码重置验证码'), text, html)
+    } catch (e) {
+      console.error('发送重置邮件失败:', e)
+      return c.json({ error: T(c, '邮件发送失败，请稍后再试') }, 500)
+    }
   }
   return c.json({ success: true })
 })
 
 // 校验验证码并重置密码
 app.post('/api/auth/reset-password', async (c) => {
+  if (!(await limitAuth(c))) return c.json({ error: T(c, '请求过于频繁，请稍后再试') }, 429)
   const { email, code, password } = await c.req.json()
   if (!email || !code || !password) return c.json({ error: T(c, '参数不完整') }, 400)
   if (password.length < 6) return c.json({ error: T(c, '密码至少6位') }, 400)
 
+  const emailNorm = String(email).trim().toLowerCase()
   const now = Math.floor(Date.now() / 1000)
-  const row = await c.env.DB.prepare('SELECT code, expires_at, attempts FROM password_reset_codes WHERE email = ?').bind(email).first() as any
-  if (!row) return c.json({ error: T(c, '请先获取验证码') }, 400)
+  const row = await c.env.DB.prepare('SELECT code, expires_at, attempts FROM password_reset_codes WHERE email = ? COLLATE NOCASE').bind(emailNorm).first() as any
+  if (!row) return c.json({ error: T(c, '验证码错误或已过期') }, 400)
   if (row.expires_at < now) return c.json({ error: T(c, '验证码已过期，请重新获取') }, 400)
   if (row.attempts >= 5) return c.json({ error: T(c, '尝试次数过多，请重新获取验证码') }, 400)
 
   if (String(row.code) !== String(code).trim()) {
-    await c.env.DB.prepare('UPDATE password_reset_codes SET attempts = attempts + 1 WHERE email = ?').bind(email).run()
+    await c.env.DB.prepare('UPDATE password_reset_codes SET attempts = attempts + 1 WHERE email = ? COLLATE NOCASE').bind(emailNorm).run()
     return c.json({ error: T(c, '验证码错误') }, 400)
   }
 
-  const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first() as any
-  if (!user) return c.json({ error: T(c, '该邮箱未注册') }, 404)
+  const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').bind(emailNorm).first() as any
+  if (!user) return c.json({ error: T(c, '验证码错误或已过期') }, 400)
 
-  const hash = await hashPassword(password, c.env.JWT_SECRET)
+  const hash = await hashPassword(password)
   await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(hash, user.id).run()
-  await c.env.DB.prepare('DELETE FROM password_reset_codes WHERE email = ?').bind(email).run()
+  // 重置密码后旧会话不能继续使用：以密码哈希标记使旧 JWT 失效无版本字段，这里删除验证码并提示重新登录
+  await c.env.DB.prepare('DELETE FROM password_reset_codes WHERE email = ? COLLATE NOCASE').bind(emailNorm).run()
   return c.json({ success: true })
 })
 
@@ -590,8 +682,10 @@ app.get('/api/auth/google/callback', async (c) => {
   const email = String(ui.email || '').toLowerCase()
   if (!email) return fail(T(c, 'Google 账号未提供邮箱'))
 
-  // 查找或创建用户（邮箱忽略大小写匹配）
-  const existing = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url, status FROM users WHERE email = ? COLLATE NOCASE').bind(email).first() as any
+  // 查找或创建用户：先精确匹配（防止大小写变体邮箱抢注后被 OAuth 串号），
+  // 再忽略大小写兜底（邮箱投递不区分大小写，覆盖存量混合大小写数据）
+  const existing = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url, status FROM users WHERE email = ?').bind(email).first() as any
+    ?? await c.env.DB.prepare('SELECT id, email, nickname, avatar_url, status FROM users WHERE email = ? COLLATE NOCASE').bind(email).first() as any
   if (existing && existing.status === 'disabled') return fail(T(c, '账户已被禁用'))
 
   let userId: string
@@ -614,15 +708,16 @@ app.get('/api/auth/google/callback', async (c) => {
   const token = await signJWT({ sub: userId, email }, c.env.JWT_SECRET)
 
   const next = typeof state.next === 'string' && state.next.startsWith('/') ? state.next : '/'
-  const sep = next.includes('?') ? '&' : '?'
-  return c.redirect(`https://linkpad.site${next}${sep}google_token=${encodeURIComponent(token)}`, 302)
+  // token 放 URL fragment（#）而非 query：fragment 不会进服务器访问日志、Referer 或代理日志
+  return c.redirect(`https://linkpad.site${next}#google_token=${encodeURIComponent(token)}`, 302)
 })
 
 // ==================== User Profile ====================
 
 app.get('/api/users/:id', async (c) => {
   const id = c.req.param('id')
-  const user = await c.env.DB.prepare('SELECT id, email, nickname, avatar_url, created_at FROM users WHERE id = ?').bind(id).first() as any
+  // 不返回 email：登录名/管理员比对键不应对外泄露
+  const user = await c.env.DB.prepare('SELECT id, nickname, avatar_url, created_at FROM users WHERE id = ?').bind(id).first() as any
   if (!user) return c.json({ error: T(c, '用户不存在') }, 404)
 
   // Check if current user is following this profile
@@ -681,7 +776,7 @@ app.get('/api/users/:id/repos', async (c) => {
   }
 
   const { results } = await c.env.DB.prepare(query).bind(...params).all()
-  return c.json(results)
+  return c.json((results || []).map(stripRepoPassword))
 })
 
 app.put('/api/users/me', async (c) => {
@@ -690,7 +785,8 @@ app.put('/api/users/me', async (c) => {
   const { nickname, avatar_url } = await c.req.json()
 
   if (nickname !== undefined) {
-    await c.env.DB.prepare('UPDATE users SET nickname = ? WHERE id = ?').bind(nickname, user.id).run()
+    // 昵称限长，防止超长字符串入库与通知文案滥用
+    await c.env.DB.prepare('UPDATE users SET nickname = ? WHERE id = ?').bind(String(nickname).trim().slice(0, 40), user.id).run()
   }
   if (avatar_url !== undefined) {
     await c.env.DB.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').bind(avatar_url, user.id).run()
@@ -743,6 +839,33 @@ app.post('/api/user/widgets', async (c) => {
 
 // ==================== Avatar Upload ====================
 
+// 图片魔数检测：以文件内容为准，不信任客户端声明的 MIME / 扩展名
+function detectImageType(buf: ArrayBuffer): string | null {
+  const b = new Uint8Array(buf)
+  if (b.length < 12) return null
+  if (b[0] === 0xFF && b[1] === 0xD8) return 'image/jpeg'
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png'
+  if (b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp'
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif'
+  return null
+}
+
+const IMAGE_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+}
+
+// R2 图片对象统一按白名单扩展名/固定 Content-Type 回读，杜绝 text/html、image/svg 等可执行类型
+function imageResponse(obj: R2ObjectBody, cacheControl: string, etag?: string): Response {
+  const headers = new Headers()
+  const ct = (obj.httpMetadata?.contentType as string) || ''
+  const safe = IMAGE_EXT[ct] ? ct : 'application/octet-stream'
+  headers.set('Content-Type', safe)
+  headers.set('Content-Disposition', 'inline')
+  headers.set('Cache-Control', cacheControl)
+  if (etag) headers.set('etag', etag)
+  return new Response(obj.body, { headers })
+}
+
 app.post('/api/upload/avatar', async (c) => {
   const user = await getUser(c)
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
@@ -751,9 +874,14 @@ app.post('/api/upload/avatar', async (c) => {
   const file = formData['file'] as File | null
   if (!file) return c.json({ error: T(c, '请选择文件') }, 400)
 
-  const ext = file.name.split('.').pop() || 'png'
+  const buf = await file.arrayBuffer()
+  const detected = detectImageType(buf)
+  if (!detected) return c.json({ error: T(c, '仅支持 JPG / PNG / WebP / GIF 图片') }, 400)
+  if (buf.byteLength > 2 * 1024 * 1024) return c.json({ error: T(c, '图片过大（超过 2MB）') }, 400)
+
+  const ext = IMAGE_EXT[detected]
   const key = `avatars/${user.id}.${ext}`
-  await c.env.R2.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } })
+  await c.env.R2.put(key, buf, { httpMetadata: { contentType: detected } })
 
   const url = `/api/avatars/${user.id}.${ext}`
   await c.env.DB.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').bind(url, user.id).run()
@@ -765,13 +893,11 @@ app.post('/api/upload/avatar', async (c) => {
 
 app.get('/api/avatars/:key', async (c) => {
   const key = c.req.param('key')
+  // 仅允许白名单图片扩展名，杜绝历史遗留的可执行内容被同源渲染
+  if (!/\.(jpe?g|png|webp|gif)$/i.test(key)) return c.json({ error: 'Not found' }, 404)
   const obj = await c.env.R2.get(`avatars/${key}`)
   if (!obj) return c.json({ error: 'Not found' }, 404)
-  const headers = new Headers()
-  obj.writeHttpMetadata(headers)
-  headers.set('Cache-Control', 'public, max-age=31536000')
-  headers.set('etag', obj.httpEtag)
-  return new Response(obj.body, { headers })
+  return imageResponse(obj, 'public, max-age=31536000', obj.httpEtag)
 })
 
 // ==================== User Wallpapers（用户自定义壁纸，仅本人可见可用） ====================
@@ -793,17 +919,21 @@ app.post('/api/wallpapers', async (c) => {
   const formData = await c.req.parseBody()
   const file = formData['file'] as File | null
   if (!file) return c.json({ error: T(c, '请选择文件') }, 400)
-  if (!WALLPAPER_TYPES.includes(file.type)) return c.json({ error: T(c, '仅支持 JPG / PNG / WebP 图片') }, 400)
-  if (file.size > 8 * 1024 * 1024) return c.json({ error: T(c, '图片过大（超过 8MB）') }, 400)
+  const buf = await file.arrayBuffer()
+  // 魔数检测为准，不信任客户端声明的 MIME
+  const detected = detectImageType(buf)
+  if (!detected || !WALLPAPER_TYPES.includes(detected)) return c.json({ error: T(c, '仅支持 JPG / PNG / WebP 图片') }, 400)
+  if (buf.byteLength > 8 * 1024 * 1024) return c.json({ error: T(c, '图片过大（超过 8MB）') }, 400)
   const countRow = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM user_wallpapers WHERE user_id = ?').bind(user.id).first<any>()
   if ((countRow?.n || 0) >= 30) return c.json({ error: T(c, '最多上传 30 张壁纸') }, 400)
   const id = crypto.randomUUID()
-  const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
+  const contentType = detected
+  const ext = contentType === 'image/png' ? 'png' : contentType === 'image/webp' ? 'webp' : 'jpg'
   const r2Key = `wallpapers/${user.id}/${id}.${ext}`
-  await c.env.R2.put(r2Key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } })
+  await c.env.R2.put(r2Key, buf, { httpMetadata: { contentType } })
   await c.env.DB.prepare('INSERT INTO user_wallpapers (id, user_id, r2_key, filename, content_type, size) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(id, user.id, r2Key, file.name || `${id}.${ext}`, file.type, file.size).run()
-  return c.json({ id, filename: file.name, content_type: file.type, size: file.size })
+    .bind(id, user.id, r2Key, file.name || `${id}.${ext}`, contentType, buf.byteLength).run()
+  return c.json({ id, filename: file.name, content_type: contentType, size: buf.byteLength })
 })
 
 app.delete('/api/wallpapers/:id', async (c) => {
@@ -883,6 +1013,12 @@ app.post('/api/upload/pdf', async (c) => {
   if (!PDF_TYPES.includes(file.type)) return c.json({ error: T(c, '仅支持 PDF 文件') }, 400)
   if (file.size > PDF_LIMIT) return c.json({ error: T(c, 'PDF 过大（超过 100MB）') }, 400)
 
+  // 魔数校验：file.type 可被客户端伪造
+  const pdfHead = new Uint8Array(await file.slice(0, 5).arrayBuffer())
+  if (!(pdfHead[0] === 0x25 && pdfHead[1] === 0x50 && pdfHead[2] === 0x44 && pdfHead[3] === 0x46)) {
+    return c.json({ error: T(c, '仅支持 PDF 文件') }, 400)
+  }
+
   const id = crypto.randomUUID()
   const r2Key = `pdfs/${user.id}/${id}.pdf`
   await c.env.R2.put(r2Key, await file.arrayBuffer(), { httpMetadata: { contentType: 'application/pdf' } })
@@ -893,6 +1029,37 @@ app.post('/api/upload/pdf', async (c) => {
   return c.json({ id, filename: file.name || `${id}.pdf`, size: file.size }, 201)
 })
 
+// ==================== Media Token（短时效单用途下载凭证，替代把主 JWT 放进 URL） ====================
+
+async function createMediaToken(pdfId: string, sub: string, secret: string): Promise<string> {
+  const exp = Math.floor(Date.now() / 1000) + 300
+  const payload = `${pdfId}|${sub}|${exp}`
+  return `${btoa(payload)}.${await hmacSign(payload, secret)}`
+}
+
+async function verifyMediaToken(token: string | undefined, pdfId: string, secret: string): Promise<string | null> {
+  if (!token) return null
+  const idx = token.lastIndexOf('.')
+  if (idx <= 0) return null
+  const body = token.slice(0, idx)
+  const sig = token.slice(idx + 1)
+  let payload: string
+  try { payload = atob(body) } catch { return null }
+  if (sig !== await hmacSign(payload, secret)) return null
+  const [id, sub, exp] = payload.split('|')
+  if (id !== pdfId || !sub || Number(exp) < Math.floor(Date.now() / 1000)) return null
+  return sub
+}
+
+// 为前端新标签页打开 PDF 签发短时效下载凭证（5 分钟、绑定单个文件）
+app.post('/api/media-token', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
+  const { pdf_id } = await c.req.json() as { pdf_id?: string }
+  if (!pdf_id) return c.json({ error: T(c, '参数不完整') }, 400)
+  return c.json({ token: await createMediaToken(String(pdf_id), user.id, c.env.JWT_SECRET), expires_in: 300 })
+})
+
 // Stream inline for small files; Cloudflare does not use Content-Disposition as
 // a cache key, so private metadata remains safe for signed-in access.
 app.get('/api/pdfs/:id', async (c) => {
@@ -900,21 +1067,23 @@ app.get('/api/pdfs/:id', async (c) => {
   const row = await c.env.DB.prepare('SELECT id, user_id, owner, r2_key, size FROM link_uploads WHERE id = ?').bind(id).first<any>()
   if (!row) return c.json({ error: T(c, '文件不存在') }, 404)
 
-  // 顶部导航（新标签页）无法带 Authorization 头，允许用 URL 里的 JWT 校验；
-  // 历史数据没有 owner 时，由首个合法访问者认领，保证已创建的 PDF 链接可用。
+  // 顶部导航（新标签页）无法带 Authorization 头，允许用 ?t= 短时效媒体凭证（5 分钟、绑定单个文件）
+  // 校验访问；主 JWT 不再进入 URL。
   const user = await getUser(c)
   let viewerId: string | null = user?.id ?? null
   if (!viewerId) {
-    const token = c.req.query('t')
-    const payload = token ? await verifyJWT(token, c.env.JWT_SECRET) : null
-    viewerId = payload?.sub ? String(payload.sub) : null
+    viewerId = await verifyMediaToken(c.req.query('t'), id, c.env.JWT_SECRET)
   }
   if (!viewerId) return c.json({ error: T(c, '未登录') }, 401)
+
+  // 属主：优先已认领的 owner；历史数据回退到上传者 user_id（不允许首个访问者抢注）
+  const effectiveOwner = row.owner || row.user_id
+  if (effectiveOwner && effectiveOwner !== viewerId) return c.json({ error: T(c, '无权访问') }, 403)
   if (!row.owner) {
-    await c.env.DB.prepare('UPDATE link_uploads SET owner = ? WHERE id = ? AND owner IS NULL').bind(viewerId, id).run()
+    // 原子认领：仅上传者本人可把自己的历史上传绑定 owner
+    await c.env.DB.prepare('UPDATE link_uploads SET owner = ? WHERE id = ? AND owner IS NULL AND user_id = ?').bind(viewerId, id, viewerId).run()
     row.owner = viewerId
   }
-  if (row.owner !== viewerId) return c.json({ error: T(c, '无权访问') }, 403)
 
   const obj = await c.env.R2.get(row.r2_key)
   if (!obj) return c.json({ error: 'Not found' }, 404)
@@ -936,7 +1105,8 @@ app.post('/api/pdfs/:id/claim', async (c) => {
   if (!row) return c.json({ error: T(c, '文件不存在') }, 404)
   if (row.owner && row.owner !== user.id) return c.json({ error: T(c, '无权操作') }, 403)
   if (!row.owner) {
-    await c.env.DB.prepare('UPDATE link_uploads SET owner = ? WHERE id = ?').bind(user.id, id).run()
+    // 原子认领：仅上传者本人（user_id）可认领，防止并发抢注
+    await c.env.DB.prepare('UPDATE link_uploads SET owner = ? WHERE id = ? AND owner IS NULL AND user_id = ?').bind(user.id, id, user.id).run()
   }
   return c.json({ success: true })
 })
@@ -964,6 +1134,43 @@ async function canManageRepo(c: any, repoId: string): Promise<boolean> {
   return !!member
 }
 
+// 仓库出参一律剔除 password 字段（哈希也不应下发）
+function stripRepoPassword<T extends Record<string, any>>(repo: T): Omit<T, 'password'> {
+  if (!repo || typeof repo !== 'object') return repo
+  const { password, ...rest } = repo
+  return rest as Omit<T, 'password'>
+}
+
+// 仓库可见性统一校验：
+// - private：仅 owner / 成员
+// - password：owner 直通，其他访问者需提供密码（X-Repo-Password 头优先，兼容 ?password= query）
+// 返回 denied：'none' 可访问 / 'forbidden' 403 / 'need_password' 401
+async function repoAccessState(c: any, repoId: string): Promise<{ repo: any; user: User | null; denied: 'none' | 'forbidden' | 'need_password' }> {
+  const user = await getUser(c)
+  const repo = await c.env.DB.prepare('SELECT * FROM repositories WHERE id = ?').bind(repoId).first() as any
+  if (!repo) return { repo: null, user, denied: 'forbidden' }
+  if (repo.visibility === 'private') {
+    if (user && user.id === repo.user_id) return { repo, user, denied: 'none' }
+    if (user) {
+      const member = await c.env.DB.prepare('SELECT id FROM repo_members WHERE repo_id = ? AND user_id = ?').bind(repoId, user.id).first()
+      if (member) return { repo, user, denied: 'none' }
+    }
+    return { repo, user, denied: 'forbidden' }
+  }
+  if (repo.visibility === 'password' && repo.password) {
+    if (user && user.id === repo.user_id) return { repo, user, denied: 'none' }
+    const supplied = c.req.header('x-repo-password') ?? c.req.query('password') ?? ''
+    const { ok } = await verifyPassword(supplied, repo.password, c.env.JWT_SECRET)
+    if (!ok) return { repo, user, denied: 'need_password' }
+  }
+  return { repo, user, denied: 'none' }
+}
+
+function repoAccessErrorResponse(c: any, denied: 'forbidden' | 'need_password') {
+  if (denied === 'need_password') return c.json({ need_password: true }, 401)
+  return c.json({ error: T(c, '无权访问') }, 403)
+}
+
 // ==================== Repositories ====================
 
 app.get('/api/repos', async (c) => {
@@ -989,9 +1196,12 @@ app.post('/api/repos', async (c) => {
   const icon = name.charAt(0).toUpperCase()
   const colors = randomColor()
 
+  // 密码哈希入库（兼容前端传空串=未设置）
+  const storedPassword = password ? await hashPassword(String(password)) : ''
+
   await c.env.DB.prepare(
     'INSERT INTO repositories (id, user_id, name, icon, bg_color, text_color, description, visibility, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(id, user.id, name, icon, colors.bg, colors.text, description || '', visibility || 'private', password || '').run()
+  ).bind(id, user.id, name, icon, colors.bg, colors.text, description || '', visibility || 'private', storedPassword).run()
 
   // Add categories
   if (categories && Array.isArray(categories) && categories.length > 0) {
@@ -1003,7 +1213,7 @@ app.post('/api/repos', async (c) => {
 
   await recordActivity(c, user, 'repo_create')
   const repo = await c.env.DB.prepare('SELECT * FROM repositories WHERE id = ?').bind(id).first()
-  return c.json(repo, 201)
+  return c.json(stripRepoPassword(repo as any), 201)
 })
 
 app.get('/api/repos/:id', async (c) => {
@@ -1011,19 +1221,10 @@ app.get('/api/repos/:id', async (c) => {
   const repo = await c.env.DB.prepare('SELECT r.*, u.nickname as owner_name, u.avatar_url as owner_avatar FROM repositories r JOIN users u ON u.id = r.user_id WHERE r.id = ?').bind(id).first() as any
   if (!repo) return c.json({ error: T(c, '仓库不存在') }, 404)
 
-  // Check visibility
-  if (repo.visibility === 'private') {
-    const user = await getUser(c)
-    if (!user || user.id !== repo.user_id) return c.json({ error: T(c, '无权访问') }, 403)
-  }
-
-  if (repo.visibility === 'password') {
-    const password = c.req.query('password')
-    if (repo.password && password !== repo.password) {
-      const user = await getUser(c)
-      if (!user || user.id !== repo.user_id) return c.json({ need_password: true }, 401)
-    }
-  }
+  // Check visibility（统一可见性校验：private 仅 owner/成员；password 需密码）
+  const access = await repoAccessState(c, id)
+  if (!access.repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (access.denied !== 'none') return repoAccessErrorResponse(c, access.denied)
 
   // Get categories and members
   const { results: categories } = await c.env.DB.prepare('SELECT id, name, sort_order FROM repo_categories WHERE repo_id = ? ORDER BY sort_order ASC').bind(id).all()
@@ -1052,7 +1253,7 @@ app.get('/api/repos/:id', async (c) => {
   }
 
   return c.json({
-    ...repo,
+    ...stripRepoPassword(repo),
     categories: categories.map((c: any) => c.name),
     members,
     follower_count: (followerCount as any)?.count || 0,
@@ -1081,7 +1282,11 @@ app.put('/api/repos/:id', async (c) => {
   if (text_color !== undefined) await c.env.DB.prepare('UPDATE repositories SET text_color = ? WHERE id = ?').bind(text_color, id).run()
   if (description !== undefined) await c.env.DB.prepare('UPDATE repositories SET description = ? WHERE id = ?').bind(description, id).run()
   if (visibility !== undefined) await c.env.DB.prepare('UPDATE repositories SET visibility = ? WHERE id = ?').bind(visibility, id).run()
-  if (password !== undefined) await c.env.DB.prepare('UPDATE repositories SET password = ? WHERE id = ?').bind(password, id).run()
+  // 密码语义：undefined = 不修改；'' = 清除密码；非空 = 设置新密码（哈希入库）
+  if (password !== undefined) {
+    const stored = password ? await hashPassword(String(password)) : ''
+    await c.env.DB.prepare('UPDATE repositories SET password = ? WHERE id = ?').bind(stored, id).run()
+  }
 
   // Update categories if provided
   const { categories } = await c.req.json()
@@ -1095,7 +1300,7 @@ app.put('/api/repos/:id', async (c) => {
 
   await recordActivity(c, user, 'repo_update')
   const updated = await c.env.DB.prepare('SELECT * FROM repositories WHERE id = ?').bind(id).first()
-  return c.json(updated)
+  return c.json(stripRepoPassword(updated as any))
 })
 
 app.delete('/api/repos/:id', async (c) => {
@@ -1126,6 +1331,10 @@ app.delete('/api/repos/:id', async (c) => {
 
 app.get('/api/repos/:id/links', async (c) => {
   const id = c.req.param('id')
+  // 可见性校验：private/password 仓库的链接列表不得被未授权访问读取
+  const access = await repoAccessState(c, id)
+  if (!access.repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (access.denied !== 'none') return repoAccessErrorResponse(c, access.denied)
   const { results } = await c.env.DB.prepare('SELECT * FROM repo_links WHERE repo_id = ? ORDER BY sort_order ASC, created_at ASC').bind(id).all()
   const catMap = await getRepoCategoryIds(c.env.DB, id, (results || []).map((r: any) => r.id))
   return c.json((results || []).map((link: any) => ({ ...link, category_ids: catMap[link.id] || [link.category_id].filter(Boolean) })))
@@ -1135,6 +1344,9 @@ app.get('/api/repos/:id/links', async (c) => {
 // GitHub 链接不做同域名兜底：不同路径代表不同仓库
 app.get('/api/repos/:id/links/duplicates', async (c) => {
   const repoId = c.req.param('id')
+  const access = await repoAccessState(c, repoId)
+  if (!access.repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (access.denied !== 'none') return repoAccessErrorResponse(c, access.denied)
   const key = normalizeUrl(c.req.query('url') ?? '')
   if (!key) return c.json({ duplicates: [] })
   const exclude = c.req.query('exclude') || ''
@@ -1159,6 +1371,7 @@ app.post('/api/repos/:id/links', async (c) => {
 
   const { name, url, icon, category_id, category_ids, desc } = await c.req.json()
   if (!name || !url) return c.json({ error: T(c, '名称和地址不能为空') }, 400)
+  if (!isSafeHttpUrl(url)) return c.json({ error: T(c, '链接地址必须是 http(s) 网址') }, 400)
 
   // 分类多选：仓库 category_id 存分类名；兼容旧的单选参数
   const requestedCats = normalizeCategoryIds(category_ids)
@@ -1201,6 +1414,7 @@ app.put('/api/links/:id', async (c) => {
   if (!(await canManageRepo(c, link.repo_id))) return c.json({ error: T(c, '无权修改') }, 403)
 
   const { name, url, icon, category_id, category_ids, bg_color, text_color, desc } = await c.req.json()
+  if (url !== undefined && !isSafeHttpUrl(url)) return c.json({ error: T(c, '链接地址必须是 http(s) 网址') }, 400)
   if (name !== undefined) await c.env.DB.prepare('UPDATE repo_links SET name = ? WHERE id = ?').bind(name, id).run()
   if (url !== undefined) await c.env.DB.prepare('UPDATE repo_links SET url = ?, link_status = \'\', last_checked_at = 0, fail_count = 0, last_http_status = 0 WHERE id = ?').bind(url, id).run()
   // URL 变更时后台预热新地址的预览截图（不阻塞响应）
@@ -1394,9 +1608,11 @@ app.put('/api/repos/:id/links/reorder', async (c) => {
   const { order } = await c.req.json() as { order: { id: string; sort_order: number }[] }
   if (!order) return c.json({ error: T(c, '无效参数') }, 400)
   const db = c.env.DB
-  const tx = db.batch(order.map(o =>
-    db.prepare('UPDATE repo_links SET sort_order = ? WHERE id = ?').bind(o.sort_order, o.id)
-  ))
+  // WHERE 限定 repo_id：防止用其他仓库的 link id 越权改排序
+  const tx = db.batch(order
+    .filter(o => o && typeof o.id === 'string' && Number.isFinite(Number(o.sort_order)))
+    .map(o => db.prepare('UPDATE repo_links SET sort_order = ? WHERE id = ? AND repo_id = ?').bind(Number(o.sort_order), o.id, repoId))
+  )
   await tx
 
   // Sync link order to followers — mirror the new in-section order onto their tools
@@ -1422,6 +1638,9 @@ app.put('/api/repos/:id/links/reorder', async (c) => {
 
 app.get('/api/repos/:id/members', async (c) => {
   const repoId = c.req.param('id')
+  const access = await repoAccessState(c, repoId)
+  if (!access.repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (access.denied !== 'none') return repoAccessErrorResponse(c, access.denied)
   const { results } = await c.env.DB.prepare(
     'SELECT u.id, u.nickname, u.avatar_url FROM repo_members rm JOIN users u ON u.id = rm.user_id WHERE rm.repo_id = ? ORDER BY rm.created_at ASC'
   ).bind(repoId).all()
@@ -1429,10 +1648,13 @@ app.get('/api/repos/:id/members', async (c) => {
 })
 
 app.post('/api/repos/:id/members', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const repoId = c.req.param('id')
-  if (!(await canManageRepo(c, repoId))) return c.json({ error: T(c, '无权操作') }, 403)
+  // 成员管理仅仓库 owner 可操作（成员不得再拉人/踢人）
   const repo = await c.env.DB.prepare('SELECT user_id FROM repositories WHERE id = ?').bind(repoId).first() as any
   if (!repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (repo.user_id !== user.id) return c.json({ error: T(c, '仅仓库创建者可管理成员') }, 403)
 
   const { nickname, email } = await c.req.json()
   if (!nickname && !email) return c.json({ error: T(c, '请提供昵称或邮箱') }, 400)
@@ -1454,9 +1676,14 @@ app.post('/api/repos/:id/members', async (c) => {
 })
 
 app.delete('/api/repos/:id/members/:userId', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const repoId = c.req.param('id')
   const userId = c.req.param('userId')
-  if (!(await canManageRepo(c, repoId))) return c.json({ error: T(c, '无权操作') }, 403)
+  // 成员管理仅仓库 owner 可操作
+  const repo = await c.env.DB.prepare('SELECT user_id FROM repositories WHERE id = ?').bind(repoId).first() as any
+  if (!repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (repo.user_id !== user.id) return c.json({ error: T(c, '仅仓库创建者可管理成员') }, 403)
 
   await c.env.DB.prepare('DELETE FROM repo_members WHERE repo_id = ? AND user_id = ?').bind(repoId, userId).run()
   return c.json({ success: true })
@@ -1472,9 +1699,14 @@ app.post('/api/repos/:id/icon', async (c) => {
   const file = formData['file'] as File | null
   if (!file) return c.json({ error: T(c, '请选择文件') }, 400)
 
-  const ext = file.name.split('.').pop() || 'png'
+  const buf = await file.arrayBuffer()
+  const detected = detectImageType(buf)
+  if (!detected) return c.json({ error: T(c, '仅支持 JPG / PNG / WebP / GIF 图片') }, 400)
+  if (buf.byteLength > 2 * 1024 * 1024) return c.json({ error: T(c, '图片过大（超过 2MB）') }, 400)
+
+  const ext = IMAGE_EXT[detected]
   const key = `repo-icons/${repoId}.${ext}`
-  await c.env.R2.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } })
+  await c.env.R2.put(key, buf, { httpMetadata: { contentType: detected } })
 
   const url = `/api/repo-icons/${repoId}.${ext}`
   await c.env.DB.prepare('UPDATE repositories SET icon_key = ? WHERE id = ?').bind(url, repoId).run()
@@ -1483,12 +1715,10 @@ app.post('/api/repos/:id/icon', async (c) => {
 
 app.get('/api/repo-icons/:key', async (c) => {
   const key = `repo-icons/${c.req.param('key')}`
+  if (!/\.(jpe?g|png|webp|gif)$/i.test(key)) return c.json({ error: 'Not found' }, 404)
   const obj = await c.env.R2.get(key)
   if (!obj) return c.json({ error: 'Not found' }, 404)
-  const headers = new Headers()
-  obj.writeHttpMetadata(headers)
-  headers.set('Cache-Control', 'public, max-age=31536000')
-  return new Response(obj.body, { headers })
+  return imageResponse(obj, 'public, max-age=31536000')
 })
 
 // ==================== Follow / Unfollow Users ====================
@@ -1531,6 +1761,10 @@ app.post('/api/follows/repo/:repoId', async (c) => {
   const user = await getUser(c)
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const repoId = c.req.param('repoId')
+  // 可见性校验：private/password 仓库不得被未授权用户关注/同步
+  const access = await repoAccessState(c, repoId)
+  if (!access.repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (access.denied !== 'none') return repoAccessErrorResponse(c, access.denied)
   const body = await c.req.json().catch(() => ({})) as { category_id?: string; skip_link_ids?: string[] }
   const { category_id } = body
   // 勾选排除的重复链接（repo_links 的 id）
@@ -1667,6 +1901,10 @@ app.post('/api/bookmarks/repo/:repoId', async (c) => {
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
 
   const repoId = c.req.param('repoId')
+  // 可见性校验：不得收藏未授权仓库
+  const access = await repoAccessState(c, repoId)
+  if (!access.repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (access.denied !== 'none') return repoAccessErrorResponse(c, access.denied)
   const existing = await c.env.DB.prepare('SELECT id FROM repo_bookmarks WHERE user_id = ? AND repo_id = ?').bind(user.id, repoId).first()
   if (existing) return c.json({ error: T(c, '已收藏') }, 409)
 
@@ -1709,6 +1947,10 @@ app.get('/api/follows/repo/:repoId/duplicates', async (c) => {
   const user = await getUser(c)
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const repoId = c.req.param('repoId')
+  // 可见性校验：不得借重复检测读取未授权仓库的链接
+  const access = await repoAccessState(c, repoId)
+  if (!access.repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (access.denied !== 'none') return repoAccessErrorResponse(c, access.denied)
 
   const [repoLinks, userTools] = await Promise.all([
     c.env.DB.prepare('SELECT id, name, url FROM repo_links WHERE repo_id = ?').bind(repoId).all(),
@@ -1752,6 +1994,11 @@ app.post('/api/follows/repo/:repoId/resync', async (c) => {
   const follow = await c.env.DB.prepare('SELECT target_category_id FROM repo_follows WHERE user_id = ? AND repo_id = ?').bind(user.id, repoId).first() as any
   if (!follow) return c.json({ error: T(c, '未关注该仓库') }, 400)
   if (!follow.target_category_id) return c.json({ error: T(c, '关注时未选择同步分类，无法同步') }, 400)
+
+  // 可见性复查：关注关系可能早于仓库转私，重新校验后方可同步内容
+  const access = await repoAccessState(c, repoId)
+  if (!access.repo) return c.json({ error: T(c, '仓库不存在') }, 404)
+  if (access.denied !== 'none') return repoAccessErrorResponse(c, access.denied)
 
   // Persist the exclusion preference for future incremental syncs
   await c.env.DB.prepare('UPDATE repo_follows SET skip_link_ids = ?, exclude_duplicates = ? WHERE user_id = ? AND repo_id = ?').bind(skipJson, excludeDuplicates, user.id, repoId).run()
@@ -1814,10 +2061,15 @@ app.post('/api/follows/repo/:repoId/resync', async (c) => {
 
 // Helper to create a notification
 async function createNotification(db: D1Database, userId: string, type: string, actorId: string, repoId: string, message: string) {
+  // 去重限频：同一 (用户, 类型, 触发者, 仓库) 7 天内只生成一条未读通知，防反复关注/收藏轰炸
+  const existing = await db.prepare(
+    `SELECT id FROM notifications WHERE user_id = ? AND type = ? AND actor_id = ? AND repo_id = ? AND is_read = 0 AND created_at > datetime('now', '-7 day') LIMIT 1`
+  ).bind(userId, type, actorId, repoId).first()
+  if (existing) return
   const id = crypto.randomUUID()
   await db.prepare(
     'INSERT INTO notifications (id, user_id, type, actor_id, repo_id, message) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(id, userId, type, actorId, repoId, message).run()
+  ).bind(id, userId, type, actorId, repoId, String(message).slice(0, 200)).run()
 }
 
 // Find or create a sub-category for a follower (sync helper)
@@ -1930,7 +2182,7 @@ app.get('/api/me/followed-repos', async (c) => {
       (SELECT COUNT(*) FROM repo_bookmarks WHERE repo_id = r.id) as bookmark_count
     FROM repo_follows rf JOIN repositories r ON r.id = rf.repo_id WHERE rf.user_id = ? ORDER BY rf.created_at DESC`
   ).bind(user.id).all()
-  return c.json(results)
+  return c.json((results || []).map(stripRepoPassword))
 })
 
 app.get('/api/me/bookmarked-repos', async (c) => {
@@ -1943,7 +2195,7 @@ app.get('/api/me/bookmarked-repos', async (c) => {
       (SELECT COUNT(*) FROM repo_bookmarks WHERE repo_id = r.id) as bookmark_count
     FROM repo_bookmarks rb JOIN repositories r ON r.id = rb.repo_id WHERE rb.user_id = ? ORDER BY rb.created_at DESC`
   ).bind(user.id).all()
-  return c.json(results)
+  return c.json((results || []).map(stripRepoPassword))
 })
 
 // ==================== Admin ====================
@@ -2200,7 +2452,7 @@ app.get('/api/discover/repos', async (c) => {
       is_following = !!follow
       is_bookmarked = !!bookmark
     }
-    return { ...repo, is_following, is_bookmarked }
+    return { ...stripRepoPassword(repo), is_following, is_bookmarked }
   }))
 
   return c.json(enriched)
@@ -2293,7 +2545,8 @@ app.delete('/api/categories/:id', async (c) => {
 
   // 直接删除用户自己的分类和里面的链接
   await c.env.DB.prepare('DELETE FROM user_tools WHERE category_id = ? AND user_id = ?').bind(id, user.id).run()
-  await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE category_id = ?').bind(id).run()
+  // 限定只清理本人首页链接的关联，防止影响其他用户/仓库的同名分类 assignment
+  await c.env.DB.prepare('DELETE FROM link_category_assignments WHERE category_id = ? AND link_id IN (SELECT id FROM user_tools WHERE user_id = ?)').bind(id, user.id).run()
   await c.env.DB.prepare('DELETE FROM user_categories WHERE id = ? AND user_id = ?').bind(id, user.id).run()
   return c.json({ success: true })
 })
@@ -2433,6 +2686,7 @@ app.post('/api/tools', async (c) => {
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const { name, url, desc, category_id, category_ids, icon, bg_color, text_color, password } = await c.req.json()
   if (!name || !url) return c.json({ error: T(c, '名称和地址不能为空') }, 400)
+  if (!isSafeHttpUrl(url)) return c.json({ error: T(c, '链接地址必须是 http(s) 网址') }, 400)
   const id = crypto.randomUUID()
   const isAdminView = c.req.query('admin') === 'true'
 
@@ -2488,6 +2742,7 @@ app.put('/api/tools/:id', async (c) => {
   if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const id = c.req.param('id')
   const { name, url, desc, category_id, category_ids, icon, bg_color, text_color, password } = await c.req.json()
+  if (url !== undefined && !isSafeHttpUrl(url)) return c.json({ error: T(c, '链接地址必须是 http(s) 网址') }, 400)
   const isAdminView = c.req.query('admin') === 'true'
 
   if (isAdmin(c, user) && isAdminView) {
@@ -2602,16 +2857,21 @@ function domainKey(url: string): string {
 
 const FAVICON_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
 
-/** Fetch a URL and return its body only if it looks like a real image */
+/** Fetch a URL and return its body only if it is a real raster image */
 async function fetchImage(u: string): Promise<{ buffer: ArrayBuffer; contentType: string } | null> {
   try {
     const resp = await fetch(u, { headers: { 'User-Agent': FAVICON_UA }, redirect: 'follow' })
     if (!resp.ok) return null
     const ct = (resp.headers.get('content-type') || '').toLowerCase()
-    if (!ct.startsWith('image/') && !ct.includes('octet-stream')) return null
+    // SVG 可内嵌脚本，一律拒绝；非 image/* 拒绝
+    if (!ct.startsWith('image/') || ct.includes('svg')) return null
     const buffer = await resp.arrayBuffer()
     if (buffer.byteLength < 100) return null
-    return { buffer, contentType: ct || 'image/png' }
+    // 大小上限防内存滥用；魔数校验防 Content-Type 伪造
+    if (buffer.byteLength > 5 * 1024 * 1024) return null
+    const detected = detectImageType(buffer)
+    if (!detected) return null
+    return { buffer, contentType: detected }
   } catch { return null }
 }
 
@@ -2632,8 +2892,15 @@ function pickTouchIcon(html: string, origin: string): string | null {
 }
 
 app.post('/api/favicon', async (c) => {
+  // 限流：防止被当作免费抓取中继 / R2 写入放大
+  if (c.env.PREVIEW_RL) {
+    const { success } = await c.env.PREVIEW_RL.limit({ key: `favicon:${c.req.header('cf-connecting-ip') || 'anon'}` })
+    if (!success) return c.json({ error: T(c, '请求过于频繁，请稍后再试') }, 429)
+  }
   const { url } = await c.req.json() as { url: string }
   if (!url) return c.json({ error: T(c, '需要 url') }, 400)
+  // 禁止内网/环回地址
+  if (!validatePreviewUrl(url)) return c.json({ error: T(c, '无效域名') }, 400)
 
   const key = domainKey(url)
   if (!key) return c.json({ error: T(c, '无效域名') }, 400)
@@ -2689,11 +2956,14 @@ app.post('/api/favicon', async (c) => {
 
 app.get('/api/favicon-img/:key', async (c) => {
   const key = c.req.param('key')
+  // 只回白名单图片扩展名，Content-Type 由写入时的魔数检测保证为 raster image
+  if (!/@2\.(jpe?g|png|webp|gif)$/i.test(key)) return c.json({ error: T(c, '未找到') }, 404)
   const obj = await c.env.R2.get(`${FAVICON_CACHE}/${key}`)
   if (!obj) return c.json({ error: T(c, '未找到') }, 404)
+  const ct = (obj.httpMetadata?.contentType as string) || ''
   return new Response(obj.body, {
     headers: {
-      'Content-Type': obj.httpMetadata?.contentType || 'image/png',
+      'Content-Type': IMAGE_EXT[ct] ? ct : 'application/octet-stream',
       'Cache-Control': 'public, max-age=31536000',
     },
   })
@@ -2861,13 +3131,20 @@ app.get('/api/bookmarks', async (c) => {
 })
 
 app.post('/api/bookmarks/tool/:toolId', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const toolId = c.req.param('toolId')
+  // 校验工具存在，防灌垃圾数据
+  const tool = await c.env.DB.prepare('SELECT id FROM tools WHERE id = ?').bind(toolId).first()
+  if (!tool) return c.json({ error: T(c, '工具不存在') }, 404)
   const id = crypto.randomUUID()
   await c.env.DB.prepare('INSERT INTO bookmarks (id, tool_id) VALUES (?, ?)').bind(id, toolId).run()
   return c.json({ success: true, id })
 })
 
 app.delete('/api/bookmarks/tool/:toolId', async (c) => {
+  const user = await getUser(c)
+  if (!user) return c.json({ error: T(c, '未登录') }, 401)
   const toolId = c.req.param('toolId')
   await c.env.DB.prepare('DELETE FROM bookmarks WHERE tool_id = ?').bind(toolId).run()
   return c.json({ success: true })
@@ -3756,17 +4033,19 @@ function injectMeta(html: string, tags: string[]): string {
 function seoHead(lang: Lang, title: string, desc: string, cleanUrl: string, opts?: { keywords?: string }): string[] {
   const attrs = langHtmlAttrs(lang)
   // en 版自 canonical（?lang=en 自指向），zh/x-default 指向干净 URL
-  const canonical = lang === 'en' ? `${cleanUrl}?lang=en` : cleanUrl
-  const enUrl = `${cleanUrl}?lang=en`
+  // URL 属性（canonical/alternate/og:url）同样过 escXml：path 可能含未编码的用户输入（如 /user/*），防属性逃逸注入
+  const safeUrl = escXml(cleanUrl)
+  const canonical = lang === 'en' ? `${safeUrl}?lang=en` : safeUrl
+  const enUrl = `${safeUrl}?lang=en`
   return [
     attrs.htmlLang,
     `<title>${escXml(title)}</title>`,
     `<meta name="description" content="${escXml(desc)}" />`,
     opts?.keywords ? `<meta name="keywords" content="${escXml(opts.keywords)}" />` : '',
     `<link rel="canonical" href="${canonical}" />`,
-    `<link rel="alternate" hreflang="zh-CN" href="${cleanUrl}" />`,
+    `<link rel="alternate" hreflang="zh-CN" href="${safeUrl}" />`,
     `<link rel="alternate" hreflang="en" href="${enUrl}" />`,
-    `<link rel="alternate" hreflang="x-default" href="${cleanUrl}" />`,
+    `<link rel="alternate" hreflang="x-default" href="${safeUrl}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:title" content="${escXml(title)}" />`,
     `<meta property="og:description" content="${escXml(desc)}" />`,
@@ -3860,6 +4139,8 @@ app.get('/repo/:id', async (c) => {
       `<meta property="og:locale:alternate" content="${attrs.ogAlt}" />`,
       `<meta name="twitter:card" content="summary" />`,
       lastmod ? `<meta property="og:updated_time" content="${lastmod}" />` : '',
+      // JSON.stringify 不转义 "<"，用户数据（description/名称/昵称）中的 </script> 会提前闭合标签造成 XSS，
+      // 注入前必须把 "<" 转成 \u003c
       `<script type="application/ld+json">${JSON.stringify({
         '@context': 'https://schema.org',
         '@type': 'CollectionPage',
@@ -3870,7 +4151,7 @@ app.get('/repo/:id', async (c) => {
         isPartOf: { '@type': 'WebSite', name: 'LinkPad', url: 'https://linkpad.site/' },
         author: repo.owner_name ? { '@type': 'Person', name: repo.owner_name } : undefined,
         dateModified: lastmod || undefined,
-      })}</script>`,
+      }).replace(/</g, '\\u003c')}</script>`,
     ].filter(Boolean).join('\n    ')
 
     // 用函数替换，避免 meta 内容中的 $ 序列被解释为替换模式
@@ -3909,11 +4190,7 @@ app.get('/*', async (c) => {
       headers.delete('Pragma')
       headers.delete('Expires')
     }
-    headers.delete('X-Frame-Options')
-    const csp = headers.get('Content-Security-Policy')
-    if (csp) {
-      headers.set('Content-Security-Policy', csp.replace(/frame-ancestors\s+[^;]+;?/g, ''))
-    }
+    // iframe 防护头由全局安全响应头中间件统一处理（frame-ancestors 'self' chrome-extension:）
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,

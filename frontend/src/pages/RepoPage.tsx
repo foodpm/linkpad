@@ -215,6 +215,7 @@ export default function RepoPage() {
       const r = await repos.get(id, pw)
       setRepo(r)
       setNeedPassword(false)
+      // 密码仓库解锁后，后续 links 等请求需继续携带 X-Repo-Password
       const l = await repos.links.list(id)
       setLinkList(l)
       fetchGithubStars(l) // Fetch real-time GitHub stars
@@ -447,7 +448,10 @@ export default function RepoPage() {
 
   const saveEditRepo = async () => {
     if (!id) return
-    await repos.update(id, { name: editName, description: editDesc, visibility: editVisibility, password: editPassword, bg_color: editBg })
+    // 后端语义：undefined=不变，''=清除，非空=设置新密码。后端不再返回密码，编辑框不回显：仅当用户输入了新密码才携带，留空则不修改
+    const payload: any = { name: editName, description: editDesc, visibility: editVisibility, bg_color: editBg }
+    if (editVisibility === 'password' && editPassword) payload.password = editPassword
+    await repos.update(id, payload)
     const r = await repos.get(id)
     setRepo(r); setShowEditRepo(false)
   }
@@ -589,7 +593,7 @@ export default function RepoPage() {
             {/* Actions */}
             <div className="flex items-center gap-2 flex-shrink-0">
               {canManage && (
-                <button onClick={() => { setShowEditRepo(true); setEditName(repo.name); setEditDesc(repo.description || ''); setEditVisibility(repo.visibility); setEditPassword(repo.password || ''); setEditBg(repo.bg_color || '#3B82F6'); setEditIconKey(repo.icon_key || '') }}
+                <button onClick={() => { setShowEditRepo(true); setEditName(repo.name); setEditDesc(repo.description || ''); setEditVisibility(repo.visibility); setEditPassword(''); setEditBg(repo.bg_color || '#3B82F6'); setEditIconKey(repo.icon_key || '') }}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/70 border border-white/80 text-gray-500 hover:text-gray-700 hover:bg-white/90 transition-all text-sm shadow-sm">
                   <Settings className="w-4 h-4" /> {t('编辑')}
                 </button>
@@ -1116,7 +1120,7 @@ export default function RepoPage() {
                 </select>
               </div>
               {editVisibility === 'password' && (
-                <input value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder={t('访问密码')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
+                <input type="password" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder={t('密码留空则不修改密码')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
               )}
               <div className="flex gap-2">
                 <button onClick={() => setShowEditRepo(false)} className="flex-1 h-11 rounded-2xl bg-gray-100 text-gray-600 hover:bg-gray-200">{t('取消')}</button>

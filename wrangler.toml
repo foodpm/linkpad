@@ -53,6 +53,13 @@ type = "ratelimit"
 namespace_id = "1002"
 simple = { limit = 60, period = 60 }
 
+# 速率限制：登录/注册/密码重置等敏感接口（每 IP 每 60s 最多 10 次，防爆破与邮件轰炸）
+[[unsafe.bindings]]
+name = "AUTH_RL"
+type = "ratelimit"
+namespace_id = "1003"
+simple = { limit = 10, period = 60 }
+
 # 定时任务：链接失效兜底扫描（UTC 21:00 = 北京 05:00 低峰）
 [triggers]
 crons = ["0 21 * * *"]
