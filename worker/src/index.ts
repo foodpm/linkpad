@@ -5,6 +5,8 @@ import { cors } from 'hono/cors'
 import { EmailMessage } from 'cloudflare:email'
 import { launch } from '@cloudflare/puppeteer'
 import { type Lang, htmlLang, apiLang, interpolate, WORKER_EN, T } from './i18n'
+// @ts-ignore — node:zlib 由 workerd nodejs_compat 提供
+import zlib from 'node:zlib'
 
 type SendEmailBinding = {
   send: (message: EmailMessage) => Promise<void>
@@ -2912,6 +2914,73 @@ const FAVICON_VERSION = '@2'
 const REMOTE_ICON_CACHE = 'remote-icons'
 const REMOTE_ICON_VERSION = '@1'
 
+function crc32(data: Uint8Array, initial = 0): number {
+  let crc = ~initial
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data[i]
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1))
+  }
+  return ~crc >>> 0
+}
+
+function chunk(type: string, data: Uint8Array): Uint8Array {
+  const output = new Uint8Array(12 + data.length)
+  const view = new DataView(output.buffer)
+  view.setUint32(0, data.length)
+  output.set(new TextEncoder().encode(type), 4)
+  output.set(data, 8)
+  view.setUint32(output.length - 4, crc32(output.subarray(4, output.length - 4)))
+  return output
+}
+
+/** Convert BMP-based ICO frames to PNG because Cloudflare R2 image responses do not support image/x-icon. */
+function icoToPng(buffer: ArrayBuffer): Uint8Array | null {
+  const view = new DataView(buffer)
+  const bytes = new Uint8Array(buffer)
+  if (view.byteLength < 22 || view.getUint16(0, true) !== 0 || view.getUint16(2, true) !== 1) return null
+  const width = view.getUint8(6) || 256
+  const height = view.getUint8(7) || 256
+  const byteWidth = width * 4
+  const rows = new Uint8Array(height * byteWidth)
+  const bg = { r: 255, g: 255, b: 255 }
+
+  for (let y = 0; y < height; y++) {
+    const rowStart = 22 + y * byteWidth
+    if (rowStart + byteWidth > view.byteLength) return null
+    for (let x = 0; x < width; x++) {
+      const src = rowStart + x * 4
+      const dst = y * byteWidth + x * 4
+      const alpha = bytes[src + 3]
+      const inv = 255 - alpha
+      rows[dst] = Math.min(255, bytes[src + 2] * alpha / 255 + bg.r * inv / 255)
+      rows[dst + 1] = Math.min(255, bytes[src + 1] * alpha / 255 + bg.g * inv / 255)
+      rows[dst + 2] = Math.min(255, bytes[src] * alpha / 255 + bg.b * inv / 255)
+      rows[dst + 3] = 255
+    }
+  }
+
+  const ihdr = new Uint8Array(13)
+  const ihdrView = new DataView(ihdr.buffer)
+  ihdrView.setUint32(0, width)
+  ihdrView.setUint32(4, height)
+  ihdr[8] = 8
+  ihdr[9] = 6
+
+  const image = new Uint8Array(height * (1 + byteWidth))
+  for (let y = 0; y < height; y++) {
+    image.set([0], y * (1 + byteWidth))
+    image.set(rows.subarray(y * byteWidth, (y + 1) * byteWidth), y * (1 + byteWidth) + 1)
+  }
+  const compressed = zlib.deflateSync(image)
+  const idat = compressed.buffer.slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength) as ArrayBuffer
+  const png = new Uint8Array(57 + ihdr.length + image.length)
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+  png.set(chunk('IHDR', ihdr), 8)
+  png.set(chunk('IDAT', new Uint8Array(idat)), 21)
+  png.set(chunk('IEND', new Uint8Array(0)), 21 + 12 + image.length)
+  return png
+}
+
 /** Simple domain hash for R2 key */
 function domainKey(url: string): string {
   try {
@@ -2937,6 +3006,10 @@ async function fetchImage(u: string): Promise<{ buffer: ArrayBuffer; contentType
     if (buffer.byteLength > 5 * 1024 * 1024) return null
     const detected = detectImageType(buffer)
     if (!detected) return null
+    if (ct.includes('icon') && (detected === 'image/png' || !detected)) {
+      const png = icoToPng(buffer)
+      if (png) return { buffer: png.buffer.slice(0, png.byteLength) as ArrayBuffer, contentType: 'image/png' }
+    }
     return { buffer, contentType: detected }
   } catch { return null }
 }
