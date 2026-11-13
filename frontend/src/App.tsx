@@ -5,13 +5,14 @@ import { motion } from 'motion/react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { useT } from './i18n'
-import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, pdfLinks, openLinkUrl, API_BASE, type WeatherData } from './api'
+import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, pdfLinks, openLinkUrl, type WeatherData } from './api'
 import { gold } from './api'
 import { categories as defaultCategories, tools as defaultTools } from './data'
 import { useAutoLinkDescription } from './hooks/useAutoLinkDescription'
 import AuthModal from './components/AuthModal'
 import UserPanel from './components/UserPanel'
 import LinkPreviewHost, { scheduleLinkPreview, cancelLinkPreview } from './components/LinkPreview'
+import ToolIcon from './components/ToolIcon'
 import LinkDescriptionInput from './components/LinkDescriptionInput'
 import WallpaperManagerModal, { BUILTIN_WALLPAPERS } from './components/WallpaperManagerModal'
 import PanelStyleModal, { UI_FONTS } from './components/PanelStyleModal'
@@ -44,7 +45,7 @@ import { WeatherWidgetCard } from './components/WeatherWidget'
 // 鱼缸懒加载：three.js 体积大，拆成独立 chunk，仅首次渲染鱼缸卡片时才下载（开关关闭时用户不会加载这段代码）
 const FishTankWidgetCard = lazy(() => import('./components/fishtank/FishTankWidget').then(m => ({ default: m.FishTankWidgetCard })))
 import DeadLinksModal from './components/DeadLinksModal'
-import { isImageIcon, proxyIconSrc } from './image'
+import { isImageIcon } from './image'
 
 // ---------- 实验性组件开关（暂时下线：置 true 恢复） ----------
 const WEATHER_FX_ENABLED = false
@@ -1416,7 +1417,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden"
                       style={tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6', color: tool.text_color || '#FFFFFF' }}>
                       {tool.icon && isImageIcon(tool.icon) ? (
-                        <img src={proxyIconSrc(tool.icon, API_BASE)} className="w-full h-full object-contain p-1.5" />
+                        <ToolIcon icon={tool.icon} className="w-full h-full object-contain p-1.5" fallback={<div className={`${iconFontSize((tool.icon || tool.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>{iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}</div>} />
                       ) : (
                         <div className={`${iconFontSize((tool.icon || tool.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>
                           {iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}
@@ -2384,7 +2385,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                       <div key={d.id} className="flex items-center justify-between gap-2 text-xs text-gray-600">
                         <span className="flex items-center gap-1.5 truncate">
                           {d.icon && isImageIcon(d.icon)
-                            ? <img src={proxyIconSrc(d.icon, API_BASE)} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" />
+                            ? <ToolIcon icon={d.icon} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" fallback={<span className="w-4 h-4 rounded shrink-0 inline-flex items-center justify-center text-[9px] font-bold text-white" style={{ backgroundColor: d.bg_color || '#94a3b8' }}>{(d.name || '?').charAt(0).toUpperCase()}</span>} />
                             : <span className="w-4 h-4 rounded shrink-0 inline-flex items-center justify-center text-[9px] font-bold text-white" style={{ backgroundColor: d.bg_color || '#94a3b8' }}>{(d.name || '?').charAt(0).toUpperCase()}</span>}
                           <span className="truncate">{d.name}</span>
                         </span>
@@ -2440,7 +2441,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                     {addToolRefreshing ? (
                       <Loader2 className="w-5 h-5 animate-spin text-current/60" />
                     ) : addToolIcon && isImageIcon(addToolIcon) ? (
-                      <img src={addToolIcon} className="w-full h-full object-contain p-2" />
+                      <ToolIcon icon={addToolIcon} className="w-full h-full object-contain p-2" fallback={<span className={iconFontSize(addToolTextIcon || addToolName)}>{addToolTextIcon || addToolName.slice(0, 4) || '?'}</span>} />
                     ) : (
                       <span className={iconFontSize(addToolTextIcon || addToolName)}>{addToolTextIcon || addToolName.slice(0, 4) || '?'}</span>
                     )}
@@ -2494,7 +2495,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-md overflow-hidden"
                   style={editTool.icon && isImageIcon(editTool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: editTool.bg_color || '#3B82F6', color: editTool.text_color || '#FFFFFF' }}>
                   {editTool.icon && isImageIcon(editTool.icon) ? (
-                    <img src={proxyIconSrc(editTool.icon, API_BASE)} className="w-full h-full object-contain p-2" />
+                    <ToolIcon icon={editTool.icon} className="w-full h-full object-contain p-2" fallback={<span className={iconFontSize(editTool.icon || editTool.name)}>{editTool.icon || editTool.name?.charAt(0)?.toUpperCase() || '?'}</span>} />
                   ) : (
                     <span className={iconFontSize(editTool.icon || editTool.name)}>{editTool.icon || editTool.name?.charAt(0)?.toUpperCase() || '?'}</span>
                   )}
@@ -3424,7 +3425,7 @@ function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropEx
         style={minimal ? (tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6' }) : undefined}>
         {minimal ? (
           tool.icon && isImageIcon(tool.icon) ? (
-            <img src={proxyIconSrc(tool.icon, API_BASE)} className="w-full h-full object-contain p-3" />
+            <ToolIcon icon={tool.icon} className="w-full h-full object-contain p-3" fallback={<span className={`${iconFontSize(tool.icon || tool.name)} leading-[1.1] text-center flex flex-col items-center font-bold`} style={{ color: tool.text_color || '#FFFFFF' }}>{iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}</span>} />
           ) : (
             <span className={`${iconFontSize(tool.icon || tool.name)} leading-[1.1] text-center flex flex-col items-center font-bold`}
               style={{ color: tool.text_color || '#FFFFFF' }}>
@@ -3436,7 +3437,7 @@ function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropEx
             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden"
               style={tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6', color: tool.text_color || '#FFFFFF' }}>
               {tool.icon && isImageIcon(tool.icon) ? (
-                <img src={proxyIconSrc(tool.icon, API_BASE)} className="w-full h-full object-contain p-1.5" />
+                <ToolIcon icon={tool.icon} className="w-full h-full object-contain p-1.5" fallback={<div className={`${iconFontSize((tool.icon || tool.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>{iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}</div>} />
               ) : (
                 <div className={`${iconFontSize((tool.icon || tool.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>
                   {iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}
