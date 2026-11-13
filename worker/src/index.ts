@@ -2976,8 +2976,8 @@ function icoToPng(buffer: ArrayBuffer): Uint8Array | null {
   const png = new Uint8Array(57 + ihdr.length + image.length)
   png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
   png.set(chunk('IHDR', ihdr), 8)
-  png.set(chunk('IDAT', new Uint8Array(idat)), 21)
-  png.set(chunk('IEND', new Uint8Array(0)), 21 + 12 + image.length)
+  png.set(chunk('IDAT', new Uint8Array(idat)), 33)
+  png.set(chunk('IEND', new Uint8Array(0)), 33 + 12 + image.length)
   return png
 }
 
@@ -3123,10 +3123,18 @@ app.get('/api/icon-proxy', async (c) => {
   if (cached) return imageResponse(cached, 'public, max-age=31536000')
 
   const img = await fetchImage(url)
-  if (!img) return c.json({ error: T(c, '未找到') }, 404)
+  const fallbackImg = img || await (async () => {
+    try {
+      const domain = new URL(url).hostname
+      return await fetchImage(`https://www.google.com/s2/favicons?domain=${domain}&sz=128`)
+    } catch {
+      return null
+    }
+  })()
+  if (!fallbackImg) return c.json({ error: T(c, '未找到') }, 404)
 
-  const saved = await c.env.R2.put(r2Key, img.buffer, {
-    httpMetadata: { contentType: img.contentType },
+  const saved = await c.env.R2.put(r2Key, fallbackImg.buffer, {
+    httpMetadata: { contentType: fallbackImg.contentType },
   })
   if (!saved) return c.json({ error: T(c, '未找到') }, 404)
   const body = await c.env.R2.get(r2Key)
