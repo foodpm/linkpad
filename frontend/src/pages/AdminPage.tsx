@@ -33,9 +33,9 @@ function IconRefresh() { return <svg width="16" height="16" viewBox="0 0 24 24" 
 function IconClose() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> }
 
 const NAV_ITEMS = [
-  { id: 'menus' as Section, label: '默认菜单/链接', icon: IconMenu },
   { id: 'users' as Section, label: '用户管理', icon: IconUsers },
   { id: 'repos' as Section, label: '仓库管理', icon: IconBox },
+  { id: 'menus' as Section, label: '默认菜单/链接', icon: IconMenu },
 ]
 
 function isImageIcon(icon: string): boolean {
