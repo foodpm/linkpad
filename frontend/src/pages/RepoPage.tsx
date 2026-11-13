@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
-import { repos, links, follows, bookmarks, categories as homeCats, tools, faviconCache, pdfLinks, openLinkUrl } from '../api'
+import { repos, links, follows, bookmarks, categories as homeCats, tools, faviconCache, pdfLinks, openLinkUrl, API_BASE } from '../api'
 import { Plus, ExternalLink, Star, Heart, Edit3, Trash2, Tag, Lock as LockIcon, Settings, UserPlus, Users, Save, Camera, X, Home, MoreVertical, Loader2, AlertTriangle, Link2Off, RefreshCw, FileText } from 'lucide-react'
 import { showToast } from '../components/Toast'
 import Toast from '../components/Toast'
@@ -14,10 +14,7 @@ import ModalTitle from '../components/ModalTitle'
 import { RepoPageSkeleton } from '../components/Skeleton'
 import { useT } from '../i18n'
 import { useAutoLinkDescription } from '../hooks/useAutoLinkDescription'
-
-function isImageIcon(icon: string): boolean {
-  return icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('//') || icon.startsWith('data:image') || icon.startsWith('/api/')
-}
+import { isImageIcon, proxyIconSrc } from '../image'
 
 // 自动识别名称：GitHub 链接取最后一个路径段（仓库名），其余取域名（去 www、去 .xx 后缀）
 function guessNameFromUrl(u: string): string {
@@ -292,7 +289,7 @@ export default function RepoPage() {
       const fixed = /^https?:\/\//i.test(u) ? u : 'https://' + u
       setFaviconLoading(true)
       faviconCache.resolve(fixed).then((r) => {
-        if (r.icon_url) setLinkIcon(r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url))
+        if (r.icon_url) setLinkIcon(new URL(r.icon_url, API_BASE).toString())
       }).finally(() => setFaviconLoading(false))
     }
   }
@@ -827,7 +824,7 @@ export default function RepoPage() {
                   setFaviconLoading(true)
                   if (linkIconSrc === 'auto') faviconCache.resolve(u).then((r) => {
                     if (r.icon_url) {
-                      setLinkIcon(r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url))
+                      setLinkIcon(new URL(r.icon_url, API_BASE).toString())
                     }
                   }).finally(() => setFaviconLoading(false))
                 }} onBlur={() => {
@@ -841,7 +838,7 @@ export default function RepoPage() {
                     setFaviconLoading(true)
                     if (linkIconSrc === 'auto') faviconCache.resolve(fixed).then((r) => {
                       if (r.icon_url) {
-                        setLinkIcon(r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url))
+                        setLinkIcon(new URL(r.icon_url, API_BASE).toString())
                       }
                     }).finally(() => setFaviconLoading(false))
                   }
@@ -858,7 +855,7 @@ export default function RepoPage() {
                       <div key={d.id} className="flex items-center justify-between gap-2 text-xs text-gray-600">
                         <span className="flex items-center gap-1.5 truncate">
                           {d.icon && isImageIcon(d.icon)
-                            ? <img src={d.icon} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" />
+                            ? <img src={proxyIconSrc(d.icon, API_BASE)} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" />
                             : <span className="w-4 h-4 rounded shrink-0 inline-flex items-center justify-center text-[9px] font-bold text-white" style={{ backgroundColor: d.bg_color || '#94a3b8' }}>{(d.name || '?').charAt(0).toUpperCase()}</span>}
                           <span className="truncate">{d.name}</span>
                         </span>
@@ -909,7 +906,7 @@ export default function RepoPage() {
                     {faviconLoading ? (
                       <Loader2 className="w-5 h-5 animate-spin text-current/60" />
                     ) : linkIcon && isImageIcon(linkIcon) ? (
-                      <img src={linkIcon} className="w-full h-full object-contain p-2" />
+                      <img src={proxyIconSrc(linkIcon, API_BASE)} className="w-full h-full object-contain p-2" />
                     ) : (
                       <span className={iconFontSize(linkTextIcon || linkName)}>{linkTextIcon || linkName.slice(0, 4) || '?'}</span>
                     )}
@@ -965,7 +962,7 @@ export default function RepoPage() {
                   {faviconLoading ? (
                     <Loader2 className="w-5 h-5 animate-spin text-current/60" />
                   ) : editLink.icon && isImageIcon(editLink.icon) ? (
-                    <img src={editLink.icon} className="w-full h-full object-contain p-2" />
+                    <img src={proxyIconSrc(editLink.icon, API_BASE)} className="w-full h-full object-contain p-2" />
                   ) : (
                     <span className={iconFontSize(editLink.icon || editLink.name)}>{editLink.icon || editLink.name?.charAt(0)?.toUpperCase() || '?'}</span>
                   )}
@@ -1009,7 +1006,7 @@ export default function RepoPage() {
                   setFaviconLoading(true)
                   faviconCache.resolve(u).then((r) => {
                     if (r.icon_url) {
-                      setEditLink((prev: any) => ({ ...prev, icon: r.icon_url.startsWith('http') ? r.icon_url : (window.location.origin + r.icon_url) }))
+                      setEditLink((prev: any) => ({ ...prev, icon: new URL(r.icon_url, API_BASE).toString() }))
                     }
                   }).finally(() => setFaviconLoading(false))
                 }} placeholder={t('地址')} className="w-full h-12 px-4 bg-white/60 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400/50 text-gray-800" />
@@ -1024,7 +1021,7 @@ export default function RepoPage() {
                       <div key={d.id} className="flex items-center justify-between gap-2 text-xs text-gray-600">
                         <span className="flex items-center gap-1.5 truncate">
                           {d.icon && isImageIcon(d.icon)
-                            ? <img src={d.icon} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" />
+                            ? <img src={proxyIconSrc(d.icon, API_BASE)} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" />
                             : <span className="w-4 h-4 rounded shrink-0 inline-flex items-center justify-center text-[9px] font-bold text-white" style={{ backgroundColor: d.bg_color || '#94a3b8' }}>{(d.name || '?').charAt(0).toUpperCase()}</span>}
                           <span className="truncate">{d.name}</span>
                         </span>
@@ -1334,7 +1331,7 @@ function LinkSection({ title, links: linkList, canManage, githubStars, onContext
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden shadow-sm"
                     style={link.icon && isImageIcon(link.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: link.bg_color || '#3B82F6', color: link.text_color || '#FFFFFF' }}>
                     {link.icon && isImageIcon(link.icon) ? (
-                      <img src={link.icon} className="w-full h-full object-contain p-2" />
+                      <img src={proxyIconSrc(link.icon, API_BASE)} className="w-full h-full object-contain p-2" />
                     ) : (
                       <div className={`${iconFontSize((link.icon || link.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>
                         {iconTextLines(link.icon || link.name).map((line: string, i: number) => <span key={i}>{line}</span>)}

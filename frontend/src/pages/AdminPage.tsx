@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
-import { admin, categories, tools, faviconCache } from '../api'
+import { admin, categories, tools, faviconCache, API_BASE } from '../api'
 import { useT } from '../i18n'
 import { AdminPageSkeleton } from '../components/Skeleton'
+import { isImageIcon, proxyIconSrc } from '../image'
 
 type Section = 'menus' | 'users' | 'repos'
 
@@ -37,10 +38,6 @@ const NAV_ITEMS = [
   { id: 'repos' as Section, label: '仓库管理', icon: IconBox },
   { id: 'menus' as Section, label: '默认菜单/链接', icon: IconMenu },
 ]
-
-function isImageIcon(icon: string): boolean {
-  return icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('data:image') || icon.startsWith('/api/')
-}
 
 const toolPalette = [
   { bg: '#3B82F6', text: '#FFFFFF' }, { bg: '#8B5CF6', text: '#FFFFFF' },
@@ -390,7 +387,7 @@ export default function AdminPage() {
                             <div className="flex items-center gap-2.5">
                               <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 overflow-hidden"
                                 style={tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : (tool.bg_color ? { backgroundColor: tool.bg_color } : { background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)' })}>
-                                {tool.icon && isImageIcon(tool.icon) ? <img src={tool.icon} className="w-full h-full object-contain p-0.5" /> : (tool.name?.charAt(0)?.toUpperCase() || '?')}
+                                {tool.icon && isImageIcon(tool.icon) ? <img src={proxyIconSrc(tool.icon, API_BASE)} className="w-full h-full object-contain p-0.5" /> : (tool.name?.charAt(0)?.toUpperCase() || '?')}
                               </div>
                               <span className="font-medium text-gray-800">{tool.name}</span>
                             </div>
@@ -729,7 +726,7 @@ export default function AdminPage() {
                   {faviconLoading ? (
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : toolIcon && isImageIcon(toolIcon) ? (
-                    <img src={toolIcon} className="w-full h-full object-contain p-2" />
+                    <img src={proxyIconSrc(toolIcon, API_BASE)} className="w-full h-full object-contain p-2" />
                   ) : (
                     <span className="text-lg font-bold">{toolName.charAt(0).toUpperCase() || '?'}</span>
                   )}
@@ -755,7 +752,7 @@ export default function AdminPage() {
               <input value={toolUrl} onChange={e => {
                 setToolUrl(e.target.value); const u = e.target.value
                 if (!u) return; setFaviconLoading(true)
-                faviconCache.resolve(u).then(r => { if (r.icon_url) setToolIcon(r.icon_url.startsWith('http') ? r.icon_url : window.location.origin + r.icon_url) }).finally(() => setFaviconLoading(false))
+                faviconCache.resolve(u).then(r => { if (r.icon_url) setToolIcon(new URL(r.icon_url, API_BASE).toString()) }).finally(() => setFaviconLoading(false))
               }} placeholder={t('地址 (https://...)')}
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               <input value={toolDesc} onChange={e => setToolDesc(e.target.value)} placeholder={t('描述（选填）')}
@@ -787,7 +784,7 @@ export default function AdminPage() {
                   {faviconLoading ? (
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : toolIcon && isImageIcon(toolIcon) ? (
-                    <img src={toolIcon} className="w-full h-full object-contain p-2" />
+                    <img src={proxyIconSrc(toolIcon, API_BASE)} className="w-full h-full object-contain p-2" />
                   ) : (
                     <span className="text-lg font-bold">{(toolName || editTool.name || '?').charAt(0).toUpperCase()}</span>
                   )}
@@ -806,7 +803,7 @@ export default function AdminPage() {
               <input value={toolUrl} onChange={e => {
                 setToolUrl(e.target.value); const u = e.target.value
                 if (!u) return; setFaviconLoading(true)
-                faviconCache.resolve(u).then(r => { if (r.icon_url) setToolIcon(r.icon_url.startsWith('http') ? r.icon_url : window.location.origin + r.icon_url) }).finally(() => setFaviconLoading(false))
+                faviconCache.resolve(u).then(r => { if (r.icon_url) setToolIcon(new URL(r.icon_url, API_BASE).toString()) }).finally(() => setFaviconLoading(false))
               }} placeholder={t('地址')}
                 className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               <input value={toolDesc} onChange={e => setToolDesc(e.target.value)} placeholder={t('描述')}
@@ -867,7 +864,7 @@ export default function AdminPage() {
                       <a key={`${category.id}-${link.id}`} href={link.url} target="_blank" rel="noreferrer"
                         className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#fafbfc] transition-colors">
                         {isImageIcon(link.icon) ? (
-                          <img src={link.icon} alt="" className="w-6 h-6 rounded-md object-cover" />
+                          <img src={proxyIconSrc(link.icon, API_BASE)} alt="" className="w-6 h-6 rounded-md object-cover" />
                         ) : (
                           <span className="w-6 h-6 rounded-md bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center">
                             {link.name.charAt(0).toUpperCase()}

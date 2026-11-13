@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { useT } from './i18n'
-import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, pdfLinks, openLinkUrl, type WeatherData } from './api'
+import { categories, tools, discover, repos as reposApi, me as meApi, faviconCache, follows, bookmarks, getToken, todos as todosApi, stocks, userPrefs, weread, wallpapers as wallpapersApi, getWallpaperUrl, weather as weatherApi, pdfLinks, openLinkUrl, API_BASE, type WeatherData } from './api'
 import { gold } from './api'
 import { categories as defaultCategories, tools as defaultTools } from './data'
 import { useAutoLinkDescription } from './hooks/useAutoLinkDescription'
@@ -44,6 +44,7 @@ import { WeatherWidgetCard } from './components/WeatherWidget'
 // 鱼缸懒加载：three.js 体积大，拆成独立 chunk，仅首次渲染鱼缸卡片时才下载（开关关闭时用户不会加载这段代码）
 const FishTankWidgetCard = lazy(() => import('./components/fishtank/FishTankWidget').then(m => ({ default: m.FishTankWidgetCard })))
 import DeadLinksModal from './components/DeadLinksModal'
+import { isImageIcon, proxyIconSrc } from './image'
 
 // ---------- 实验性组件开关（暂时下线：置 true 恢复） ----------
 const WEATHER_FX_ENABLED = false
@@ -56,16 +57,6 @@ const iconMap: Record<string, any> = {
 }
 
 function getIcon(name: string) { return iconMap[name] || Compass }
-
-function faviconUrl(url: string): string {
-  // Return empty - favicon is resolved via faviconCache when adding/editing
-  // and stored as the tool's icon field. Google S2 requires proxy.
-  return ''
-}
-
-function isImageIcon(icon: string): boolean {
-  return icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('//') || icon.startsWith('data:image') || icon.startsWith('/api/')
-}
 
 // 自动识别名称：GitHub 链接取最后一个路径段（仓库名），其余取域名（去 www、去 .xx 后缀）
 function guessNameFromUrl(u: string): string {
@@ -1425,7 +1416,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden"
                       style={tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6', color: tool.text_color || '#FFFFFF' }}>
                       {tool.icon && isImageIcon(tool.icon) ? (
-                        <img src={tool.icon} className="w-full h-full object-contain p-1.5" />
+                        <img src={proxyIconSrc(tool.icon, API_BASE)} className="w-full h-full object-contain p-1.5" />
                       ) : (
                         <div className={`${iconFontSize((tool.icon || tool.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>
                           {iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}
@@ -2393,7 +2384,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                       <div key={d.id} className="flex items-center justify-between gap-2 text-xs text-gray-600">
                         <span className="flex items-center gap-1.5 truncate">
                           {d.icon && isImageIcon(d.icon)
-                            ? <img src={d.icon} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" />
+                            ? <img src={proxyIconSrc(d.icon, API_BASE)} className="w-4 h-4 rounded object-contain shrink-0 bg-white border border-gray-200" />
                             : <span className="w-4 h-4 rounded shrink-0 inline-flex items-center justify-center text-[9px] font-bold text-white" style={{ backgroundColor: d.bg_color || '#94a3b8' }}>{(d.name || '?').charAt(0).toUpperCase()}</span>}
                           <span className="truncate">{d.name}</span>
                         </span>
@@ -2503,7 +2494,7 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-md overflow-hidden"
                   style={editTool.icon && isImageIcon(editTool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: editTool.bg_color || '#3B82F6', color: editTool.text_color || '#FFFFFF' }}>
                   {editTool.icon && isImageIcon(editTool.icon) ? (
-                    <img src={editTool.icon} className="w-full h-full object-contain p-2" />
+                    <img src={proxyIconSrc(editTool.icon, API_BASE)} className="w-full h-full object-contain p-2" />
                   ) : (
                     <span className={iconFontSize(editTool.icon || editTool.name)}>{editTool.icon || editTool.name?.charAt(0)?.toUpperCase() || '?'}</span>
                   )}
@@ -3433,7 +3424,7 @@ function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropEx
         style={minimal ? (tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6' }) : undefined}>
         {minimal ? (
           tool.icon && isImageIcon(tool.icon) ? (
-            <img src={tool.icon} className="w-full h-full object-contain p-3" />
+            <img src={proxyIconSrc(tool.icon, API_BASE)} className="w-full h-full object-contain p-3" />
           ) : (
             <span className={`${iconFontSize(tool.icon || tool.name)} leading-[1.1] text-center flex flex-col items-center font-bold`}
               style={{ color: tool.text_color || '#FFFFFF' }}>
@@ -3445,7 +3436,7 @@ function DraggableGrid({ items, onReorder, children, disabled, gridKey, onDropEx
             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden"
               style={tool.icon && isImageIcon(tool.icon) ? { backgroundColor: '#FFFFFF', border: '1px solid #e5e7eb' } : { backgroundColor: tool.bg_color || '#3B82F6', color: tool.text_color || '#FFFFFF' }}>
               {tool.icon && isImageIcon(tool.icon) ? (
-                <img src={tool.icon} className="w-full h-full object-contain p-1.5" />
+                <img src={proxyIconSrc(tool.icon, API_BASE)} className="w-full h-full object-contain p-1.5" />
               ) : (
                 <div className={`${iconFontSize((tool.icon || tool.name), 'small')} leading-[1.1] text-center flex flex-col items-center`}>
                   {iconTextLines(tool.icon || tool.name).map((line: string, i: number) => <span key={i}>{line}</span>)}

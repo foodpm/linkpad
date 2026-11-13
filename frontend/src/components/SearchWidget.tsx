@@ -3,7 +3,7 @@ import { Search, X, HardDrive } from 'lucide-react'
 import { useT } from '../i18n'
 
 // 渠道 favicon：复用项目 favicon 缓存接口（R2 全局缓存，高清原图）
-const siteIconUrl = (domain: string) => `/api/favicon-img/${[...domain].map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')}.png`
+const siteIconUrl = (domain: string) => `/api/favicon-img/${[...domain].map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')}@2.png`
 
 export interface SearchChannel {
   key: string

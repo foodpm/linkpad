@@ -2907,6 +2907,11 @@ const FAVICON_CACHE = 'favicons'
 /** R2 key with version suffix — bump so previously cached low-res (sz=64) icons are re-fetched */
 const FAVICON_VERSION = '@2'
 
+// Remote icon proxy cache: lets the browser load saved third-party icons through
+// the Worker instead of directly reaching sites that may be unreachable locally.
+const REMOTE_ICON_CACHE = 'remote-icons'
+const REMOTE_ICON_VERSION = '@1'
+
 /** Simple domain hash for R2 key */
 function domainKey(url: string): string {
   try {
@@ -3028,6 +3033,32 @@ app.get('/api/favicon-img/:key', async (c) => {
       'Cache-Control': 'public, max-age=31536000',
     },
   })
+})
+
+app.get('/api/icon-proxy', async (c) => {
+  if (c.env.PREVIEW_RL) {
+    const { success } = await c.env.PREVIEW_RL.limit({ key: `icon-proxy:${c.req.header('cf-connecting-ip') || 'anon'}` })
+    if (!success) return c.json({ error: T(c, '请求过于频繁，请稍后再试') }, 429)
+  }
+
+  const url = validatePreviewUrl(c.req.query('url') || '')
+  if (!url) return c.json({ error: T(c, '无效域名') }, 400)
+
+  const key = await sha1Hex(url)
+  const r2Key = `${REMOTE_ICON_CACHE}/${key}${REMOTE_ICON_VERSION}.png`
+  const cached = await c.env.R2.get(r2Key)
+  if (cached) return imageResponse(cached, 'public, max-age=31536000')
+
+  const img = await fetchImage(url)
+  if (!img) return c.json({ error: T(c, '未找到') }, 404)
+
+  const saved = await c.env.R2.put(r2Key, img.buffer, {
+    httpMetadata: { contentType: img.contentType },
+  })
+  if (!saved) return c.json({ error: T(c, '未找到') }, 404)
+  const body = await c.env.R2.get(r2Key)
+  if (!body) return c.json({ error: T(c, '未找到') }, 404)
+  return imageResponse(body, 'public, max-age=31536000')
 })
 
 // ==================== Link Metadata（自动填写网页描述） ====================
