@@ -149,6 +149,8 @@ export const en: Record<string, string> = {
   '未使用': 'Not used',
   '首页链接': 'Home links',
   '首页分类': 'Home categories',
+  '用户首页链接': 'User homepage links',
+  '查看用户的分类和链接': 'View categories and links',
   '创建人': 'Created by',
   '点击次数排行': 'Top clicked',
   '收藏最多': 'Most saved',

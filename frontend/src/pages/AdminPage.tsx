@@ -30,6 +30,7 @@ function IconClock() { return <svg width="14" height="14" viewBox="0 0 24 24" fi
 function IconHeart() { return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> }
 function IconStar() { return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> }
 function IconRefresh() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> }
+function IconClose() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> }
 
 const NAV_ITEMS = [
   { id: 'menus' as Section, label: '默认菜单/链接', icon: IconMenu },
@@ -89,6 +90,8 @@ export default function AdminPage() {
   const [userFilter, setUserFilter] = useState({ nickname: '', email: '', status: '' })
   const [usersCursor, setUsersCursor] = useState<string | null>(null)
   const [usersLoading, setUsersLoading] = useState(false)
+  const [userLinks, setUserLinks] = useState<Awaited<ReturnType<typeof admin.users.homeLinks>> | null>(null)
+  const [userLinksLoading, setUserLinksLoading] = useState(false)
 
   // Repo management
   const [repoList, setRepoList] = useState<any[]>([])
@@ -204,6 +207,15 @@ export default function AdminPage() {
   }
   const handleDeleteUser = (u: any) => {
     setConfirm({ message: t('确定删除用户「{nickname}」？此操作不可恢复。', { nickname: u.nickname }), onConfirm: async () => { await admin.users.delete(u.id); loadUsers() } })
+  }
+  const openUserLinks = async (u: any) => {
+    setUserLinks(null)
+    setUserLinksLoading(true)
+    try {
+      setUserLinks(await admin.users.homeLinks(u.id))
+    } finally {
+      setUserLinksLoading(false)
+    }
   }
 
   // Repo handlers
@@ -520,7 +532,15 @@ export default function AdminPage() {
                             {u.extension_install_count ? t('已使用') : t('未使用')}
                           </span>
                         </td>
-                        <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.home_link_count || 0}</td>
+                        <td className="py-3 px-5 text-center">
+                          <button
+                            onClick={() => openUserLinks(u)}
+                            className="inline-flex min-w-8 justify-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 font-medium hover:bg-blue-100 transition-all"
+                            title={t('查看用户的分类和链接')}
+                          >
+                            {u.home_link_count || 0}
+                          </button>
+                        </td>
                         <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.home_category_count || 0}</td>
                         <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.followed_repos_count || 0}</td>
                         <td className="py-3 px-5 text-center text-gray-500 font-medium">{u.bookmark_count || 0}</td>
@@ -800,6 +820,88 @@ export default function AdminPage() {
             <div className="flex gap-2 mt-4">
               <button onClick={() => { setEditTool(null); setToolName(''); setToolUrl(''); setToolDesc(''); setToolIcon(''); setToolCatId('') }} className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">{t('取消')}</button>
               <button onClick={handleUpdateTool} className="flex-1 h-10 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600">{t('保存')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Home Links Modal */}
+      {userLinksLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setUserLinksLoading(false)} />
+          <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 p-6 w-full max-w-3xl mx-4">
+            <div className="h-5 w-36 bg-gray-100 rounded animate-pulse mb-4" />
+            <div className="space-y-3">
+              {[0, 1, 2].map(i => <div key={i} className="h-12 bg-gray-100 rounded-lg animate-pulse" />)}
+            </div>
+          </div>
+        </div>
+      )}
+      {userLinks && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setUserLinks(null)} />
+          <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-3xl mx-4 max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[#f0f0f0]">
+              <div className="min-w-0">
+                <h3 className="font-semibold text-gray-800 truncate">{t('用户首页链接')}</h3>
+                <p className="text-xs text-gray-400 truncate">{userLinks.user.nickname} · {userLinks.user.email} · {t('{n} 个链接', { n: userLinks.total_links })}</p>
+              </div>
+              <button onClick={() => setUserLinks(null)} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all">
+                <IconClose />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {userLinks.categories.length === 0 && userLinks.uncategorized_links.length === 0 ? (
+                <div className="text-center text-gray-400 py-10">{t('暂无数据')}</div>
+              ) : null}
+              {userLinks.categories.map(category => (
+                <div key={category.id} className="border border-[#e5e7eb] rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-[#fafbfc] border-b border-[#f0f0f0]">
+                    <span className="font-medium text-gray-700">{category.name}</span>
+                    <span className="text-xs text-gray-400">{t('{n} 个链接', { n: category.link_count })}</span>
+                  </div>
+                  <div className="divide-y divide-[#f0f0f0]">
+                    {category.links.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-gray-400">{t('暂无数据')}</div>
+                    ) : category.links.map(link => (
+                      <a key={`${category.id}-${link.id}`} href={link.url} target="_blank" rel="noreferrer"
+                        className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#fafbfc] transition-colors">
+                        {isImageIcon(link.icon) ? (
+                          <img src={link.icon} alt="" className="w-6 h-6 rounded-md object-cover" />
+                        ) : (
+                          <span className="w-6 h-6 rounded-md bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center">
+                            {link.name.charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-gray-800 truncate">{link.name}</div>
+                          <div className="text-xs text-gray-400 truncate">{link.url}</div>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {userLinks.uncategorized_links.length > 0 && (
+                <div className="border border-dashed border-[#e5e7eb] rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-[#fafbfc] border-b border-[#f0f0f0]">
+                    <span className="font-medium text-gray-700">{t('未分类')}</span>
+                    <span className="text-xs text-gray-400">{t('{n} 个链接', { n: userLinks.uncategorized_links.length })}</span>
+                  </div>
+                  <div className="divide-y divide-[#f0f0f0]">
+                    {userLinks.uncategorized_links.map(link => (
+                      <a key={link.id} href={link.url} target="_blank" rel="noreferrer"
+                        className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#fafbfc] transition-colors">
+                        <span className="w-6 h-6 rounded-md bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center">{link.name.charAt(0).toUpperCase()}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-gray-800 truncate">{link.name}</div>
+                          <div className="text-xs text-gray-400 truncate">{link.url}</div>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

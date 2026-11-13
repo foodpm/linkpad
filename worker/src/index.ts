@@ -2396,6 +2396,67 @@ app.delete('/api/admin/users/:id', async (c) => {
   return c.json({ success: true })
 })
 
+// Admin: inspect a user's homepage categories and links (read-only)
+app.get('/api/admin/users/:id/home-links', async (c) => {
+  const user = await getUser(c)
+  if (!user || !isAdmin(c, user)) return c.json({ error: T(c, '无权访问') }, 403)
+  const targetId = c.req.param('id')
+
+  const target = await c.env.DB.prepare('SELECT id, nickname, email FROM users WHERE id = ?').bind(targetId).first() as any
+  if (!target) return c.json({ error: T(c, '用户不存在') }, 404)
+
+  const [categoryRows, toolRows, assignmentRows] = await Promise.all([
+    c.env.DB.prepare('SELECT id, name, icon, parent_id, sort_order FROM user_categories WHERE user_id = ? ORDER BY sort_order, id').bind(targetId).all(),
+    c.env.DB.prepare('SELECT id, name, url, desc, icon, bg_color, text_color FROM user_tools WHERE user_id = ? ORDER BY sort_order, created_at, id').bind(targetId).all(),
+    c.env.DB.prepare(`
+      SELECT a.link_id, a.category_id
+      FROM link_category_assignments a
+      JOIN user_tools t ON t.id = a.link_id
+      WHERE t.user_id = ?
+      ORDER BY a.sort_order, a.rowid
+    `).bind(targetId).all(),
+  ])
+
+  const categoriesById = new Map((categoryRows.results as any[]).map(row => [row.id, row]))
+  const assignmentsByLink = new Map<string, string[]>()
+  for (const row of (assignmentRows.results || []) as any[]) {
+    if (!categoriesById.has(row.category_id)) continue
+    const ids = assignmentsByLink.get(row.link_id) || []
+    if (!ids.includes(row.category_id)) ids.push(row.category_id)
+    assignmentsByLink.set(row.link_id, ids)
+  }
+
+  const links = (toolRows.results as any[]).map(link => ({
+    ...link,
+    category_ids: assignmentsByLink.get(link.id) || (link.category_id ? [link.category_id] : []),
+  }))
+  const linksByCategory = new Map<string, any[]>()
+  for (const link of links) {
+    for (const categoryId of link.category_ids) {
+      const categoryLinks = linksByCategory.get(categoryId) || []
+      categoryLinks.push(link)
+      linksByCategory.set(categoryId, categoryLinks)
+    }
+  }
+
+  const categories = (categoryRows.results as any[]).map(category => ({
+    id: category.id,
+    name: category.name,
+    icon: category.icon,
+    parent_id: category.parent_id,
+    sort_order: category.sort_order,
+    link_count: (linksByCategory.get(category.id) || []).length,
+    links: linksByCategory.get(category.id) || [],
+  }))
+
+  return c.json({
+    user: { id: target.id, nickname: target.nickname, email: target.email },
+    total_links: links.length,
+    uncategorized_links: links.filter(link => link.category_ids.length === 0),
+    categories,
+  })
+})
+
 // Admin: hide/show repo
 app.put('/api/admin/repos/:id/visibility', async (c) => {
   const user = await getUser(c)

@@ -559,13 +559,20 @@ export const admin = {
     trend: Array<{ date: string; uv: number; pv: number }>
   }>,
   users: {
-    list: (params?: { nickname?: string; email?: string; status?: string }) => {
+    list: (params?: { nickname?: string; email?: string; status?: string; cursor?: string }) => {
       const q = new URLSearchParams()
       if (params?.nickname) q.set('nickname', params.nickname)
       if (params?.email) q.set('email', params.email)
       if (params?.status) q.set('status', params.status)
+      if (params?.cursor) q.set('cursor', params.cursor)
       return request(`/api/admin/users?${q}`) as Promise<{ items: any[]; nextCursor: string | null }>
     },
+    homeLinks: (id: string) => request(`/api/admin/users/${id}/home-links`) as Promise<{
+      user: { id: string; nickname: string; email: string }
+      total_links: number
+      uncategorized_links: any[]
+      categories: Array<{ id: string; name: string; icon: string; parent_id: string; link_count: number; links: any[] }>
+    }>,
     setStatus: (id: string, status: string) =>
       request(`/api/admin/users/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
     delete: (id: string) =>
