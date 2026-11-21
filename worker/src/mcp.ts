@@ -266,17 +266,18 @@ async function toolAddRepoLink(c: any, user: McpUser, args: any) {
 
   const linkId = crypto.randomUUID()
   // 服务端自动解析站点图标（R2 缓存命中则直接复用）；失败回退文字图标
+  // 与网页端行为一致：存绝对 URL（浏览器扩展等非同源环境下相对路径无法加载）
   let linkIcon = name.charAt(0).toUpperCase()
   try {
     const iconUrl = await resolveFaviconUrl(c.env, url)
-    if (iconUrl) linkIcon = iconUrl
+    if (iconUrl) linkIcon = new URL(c.req.url).origin + iconUrl
   } catch (e) {
     console.error('mcp add_repo_link favicon resolve failed:', e)
   }
   const maxOrder = await c.env.DB.prepare('SELECT MAX(sort_order) as max FROM repo_links WHERE repo_id = ?').bind(repoId).first() as any
   await c.env.DB.prepare(
     'INSERT INTO repo_links (id, repo_id, category_id, name, url, icon, sort_order, desc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(linkId, repoId, selectedCats[0] || '', name, url, name.charAt(0).toUpperCase(), (maxOrder?.max ?? -1) + 1, String(args?.desc ?? '')).run()
+  ).bind(linkId, repoId, selectedCats[0] || '', name, url, linkIcon, (maxOrder?.max ?? -1) + 1, String(args?.desc ?? '')).run()
   if (selectedCats.length > 0) await replaceRepoCategoryAssignments(c.env.DB, linkId, selectedCats)
   await c.env.DB.prepare(
     "UPDATE repositories SET link_count = (SELECT COUNT(*) FROM repo_links WHERE repo_id = ?), updated_at = datetime('now') WHERE id = ?"
