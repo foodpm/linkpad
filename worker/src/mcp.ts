@@ -6,7 +6,7 @@
 // 协议端点鉴权：Authorization: Bearer linkpad_<token>，仅存 SHA-256 哈希
 import { Hono } from 'hono'
 import { T } from './i18n'
-import { bytesToB64url, isSafeHttpUrl, replaceRepoCategoryAssignments, syncLinkToFollowers, stripRepoPassword, verifyJWT } from './index'
+import { bytesToB64url, isSafeHttpUrl, replaceRepoCategoryAssignments, resolveFaviconUrl, syncLinkToFollowers, stripRepoPassword, verifyJWT } from './index'
 
 type Bindings = {
   DB: D1Database
@@ -265,6 +265,14 @@ async function toolAddRepoLink(c: any, user: McpUser, args: any) {
   }
 
   const linkId = crypto.randomUUID()
+  // 服务端自动解析站点图标（R2 缓存命中则直接复用）；失败回退文字图标
+  let linkIcon = name.charAt(0).toUpperCase()
+  try {
+    const iconUrl = await resolveFaviconUrl(c.env, url)
+    if (iconUrl) linkIcon = iconUrl
+  } catch (e) {
+    console.error('mcp add_repo_link favicon resolve failed:', e)
+  }
   const maxOrder = await c.env.DB.prepare('SELECT MAX(sort_order) as max FROM repo_links WHERE repo_id = ?').bind(repoId).first() as any
   await c.env.DB.prepare(
     'INSERT INTO repo_links (id, repo_id, category_id, name, url, icon, sort_order, desc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'

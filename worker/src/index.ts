@@ -137,7 +137,7 @@ async function verifyPassword(password: string, stored: string, secret: string):
     const iterations = parseInt(iterStr, 10)
     if (!iterations || !saltB64 || !hashB64) return { ok: false }
     const bits = new Uint8Array(await pbkdf2Bits(password, b64urlToBytes(saltB64), iterations))
-    return { ok: hex(bits) === hashB64 }
+    return { ok: bytesToB64url(bits) === hashB64 }
   }
   // 旧格式兼容
   const data = new TextEncoder().encode(password + secret)
@@ -2916,7 +2916,7 @@ const FAVICON_VERSION = '@2'
 // Remote icon proxy cache: lets the browser load saved third-party icons through
 // the Worker instead of directly reaching sites that may be unreachable locally.
 const REMOTE_ICON_CACHE = 'remote-icons'
-const REMOTE_ICON_VERSION = '@1'
+const REMOTE_ICON_VERSION = '@2'
 
 function crc32(data: Uint8Array, initial = 0): number {
   let crc = ~initial
@@ -3034,35 +3034,26 @@ function pickTouchIcon(html: string, origin: string): string | null {
   try { return new URL(best.href, origin).toString() } catch { return null }
 }
 
-app.post('/api/favicon', async (c) => {
-  // 限流：防止被当作免费抓取中继 / R2 写入放大
-  if (c.env.PREVIEW_RL) {
-    const { success } = await c.env.PREVIEW_RL.limit({ key: `favicon:${c.req.header('cf-connecting-ip') || 'anon'}` })
-    if (!success) return c.json({ error: T(c, '请求过于频繁，请稍后再试') }, 429)
-  }
-  const { url } = await c.req.json() as { url: string }
-  if (!url) return c.json({ error: T(c, '需要 url') }, 400)
-  // 禁止内网/环回地址
-  if (!validatePreviewUrl(url)) return c.json({ error: T(c, '无效域名') }, 400)
-
+// 解析站点图标并缓存到 R2，返回相对 URL（如 /api/favicon-img/<key>@2.png）；失败返回 ''
+// 供 /api/favicon 与 MCP 工具共用：网页端添加链接时由前端调用解析，MCP 等无浏览器
+// 环境的客户端则由服务端在入库前解析，保证新增链接自动带真实站点图标
+export async function resolveFaviconUrl(env: Bindings, url: string): Promise<string> {
   const key = domainKey(url)
-  if (!key) return c.json({ error: T(c, '无效域名') }, 400)
+  if (!key || !validatePreviewUrl(url)) return ''
 
   const r2Key = `${FAVICON_CACHE}/${key}${FAVICON_VERSION}.png`
 
   // Check R2 cache
-  const existing = await c.env.R2.get(r2Key)
-  if (existing) {
-    return c.json({ icon_url: `/api/favicon-img/${key}${FAVICON_VERSION}.png` })
-  }
+  const existing = await env.R2.get(r2Key)
+  if (existing) return `/api/favicon-img/${key}${FAVICON_VERSION}.png`
 
   const save = async (img: { buffer: ArrayBuffer; contentType: string }) => {
-    await c.env.R2.put(r2Key, img.buffer, { httpMetadata: { contentType: img.contentType } })
-    return c.json({ icon_url: `/api/favicon-img/${key}${FAVICON_VERSION}.png` })
+    await env.R2.put(r2Key, img.buffer, { httpMetadata: { contentType: img.contentType } })
+    return `/api/favicon-img/${key}${FAVICON_VERSION}.png`
   }
 
   let origin = ''
-  try { origin = new URL(url).origin } catch { return c.json({ error: T(c, '无效域名') }, 400) }
+  try { origin = new URL(url).origin } catch { return '' }
 
   // 1. Best quality: the site's own apple-touch-icon (usually 180x180)
   try {
@@ -3094,13 +3085,28 @@ app.post('/api/favicon', async (c) => {
     if (img) return await save(img)
   }
 
-  return c.json({ icon_url: '' })
+  return ''
+}
+
+app.post('/api/favicon', async (c) => {
+  // 限流：防止被当作免费抓取中继 / R2 写入放大
+  if (c.env.PREVIEW_RL) {
+    const { success } = await c.env.PREVIEW_RL.limit({ key: `favicon:${c.req.header('cf-connecting-ip') || 'anon'}` })
+    if (!success) return c.json({ error: T(c, '请求过于频繁，请稍后再试') }, 429)
+  }
+  const { url } = await c.req.json() as { url: string }
+  if (!url) return c.json({ error: T(c, '需要 url') }, 400)
+  // 禁止内网/环回地址
+  if (!validatePreviewUrl(url)) return c.json({ error: T(c, '无效域名') }, 400)
+  if (!domainKey(url)) return c.json({ error: T(c, '无效域名') }, 400)
+
+  return c.json({ icon_url: await resolveFaviconUrl(c.env, url) })
 })
 
 app.get('/api/favicon-img/:key', async (c) => {
   const key = c.req.param('key')
-  // 只回白名单图片扩展名，Content-Type 由写入时的魔数检测保证为 raster image
-  if (!/@2\.(jpe?g|png|webp|gif)$/i.test(key)) return c.json({ error: T(c, '未找到') }, 404)
+  // 只回白名单图片扩展名；兼容无版本后缀的旧 key（历史存量图标 URL 不带 @2，404 会触发 S2 兜底返回自家 logo）
+  if (!/(@\d+)?\.(jpe?g|png|webp|gif)$/i.test(key)) return c.json({ error: T(c, '未找到') }, 404)
   const obj = await c.env.R2.get(`${FAVICON_CACHE}/${key}`)
   if (!obj) return c.json({ error: T(c, '未找到') }, 404)
   const ct = (obj.httpMetadata?.contentType as string) || ''
