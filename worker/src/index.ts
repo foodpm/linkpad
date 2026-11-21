@@ -97,11 +97,15 @@ app.use('/*', async (c, next) => {
 
 const PBKDF2_ITERATIONS = 100_000
 
-function bytesToB64url(bytes: Uint8Array): string {
+export function bytesToB64url(bytes: Uint8Array): string {
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
+
+// MCP 接入（Streamable HTTP 端点 + 接入令牌管理），复用下方共享助手
+import { mcpApp } from './mcp'
+app.route('/', mcpApp)
 
 function b64urlToBytes(s: string): Uint8Array {
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/')
@@ -153,7 +157,7 @@ async function signJWT(payload: Record<string, unknown>, secret: string): Promis
   return `${header}.${body}.${signature}`
 }
 
-async function verifyJWT(token: string, secret: string): Promise<Record<string, unknown> | null> {
+export async function verifyJWT(token: string, secret: string): Promise<Record<string, unknown> | null> {
   try {
     const parts = token.split('.')
     if (parts.length !== 3) return null
@@ -217,7 +221,7 @@ async function getRepoCategoryIds(db: D1Database, repoId: string, linkIds: strin
   return map
 }
 
-async function replaceRepoCategoryAssignments(db: D1Database, linkId: string, categories: string[]) {
+export async function replaceRepoCategoryAssignments(db: D1Database, linkId: string, categories: string[]) {
   await db.prepare('DELETE FROM link_category_assignments WHERE link_id = ?').bind(linkId).run()
   if (categories.length === 0) return
   await db.batch(categories.map((category, index) => db.prepare(
@@ -307,7 +311,7 @@ function normalizeUrl(u: string): string {
 }
 
 // 链接地址 scheme 白名单：仅 http(s)，杜绝 javascript:/data:/vbscript: 等进入 href 造成 XSS
-function isSafeHttpUrl(u: unknown): boolean {
+export function isSafeHttpUrl(u: unknown): boolean {
   if (typeof u !== 'string' || !u.trim()) return false
   try {
     const parsed = new URL(u.trim())
@@ -1137,7 +1141,7 @@ async function canManageRepo(c: any, repoId: string): Promise<boolean> {
 }
 
 // 仓库出参一律剔除 password 字段（哈希也不应下发）
-function stripRepoPassword<T extends Record<string, any>>(repo: T): Omit<T, 'password'> {
+export function stripRepoPassword<T extends Record<string, any>>(repo: T): Omit<T, 'password'> {
   if (!repo || typeof repo !== 'object') return repo
   const { password, ...rest } = repo
   return rest as Omit<T, 'password'>
@@ -2087,7 +2091,7 @@ async function findOrCreateSubCategory(db: D1Database, uid: string, repoId: stri
 }
 
 // Sync a repo link change to all followers (add / update / delete)
-async function syncLinkToFollowers(db: D1Database, repoId: string, link: any, action: 'add' | 'update' | 'delete') {
+export async function syncLinkToFollowers(db: D1Database, repoId: string, link: any, action: 'add' | 'update' | 'delete') {
   try {
     const followers = await db.prepare('SELECT user_id, target_category_id, skip_link_ids, exclude_duplicates FROM repo_follows WHERE repo_id = ? AND target_category_id != \'\'').bind(repoId).all()
     console.log(`syncLinkToFollowers(${action}): repo=${repoId}, link=${link.id}, cat="${link.category_id}", linkName="${link.name}", followers=${(followers.results || []).length}`)

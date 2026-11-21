@@ -2,20 +2,21 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import { users, follows, uploadAvatar, admin } from '../api'
-import { X, User, Users, Edit3, LogOut, Camera, Loader, Settings, Download, Mail, Palette, ChevronDown, Image as ImageIcon, Chrome, Globe, Check, Bell } from 'lucide-react'
+import { X, User, Users, Edit3, LogOut, Camera, Loader, Settings, Download, Mail, Palette, ChevronDown, Image as ImageIcon, Chrome, Globe, Check, Bell, Plug } from 'lucide-react'
 import { useT, useLang } from '../i18n'
 
 interface Props {
   onClose: () => void
   onOpenPanelStyleModal: () => void
   onOpenWallpaperManager: () => void
+  onOpenMcpModal: () => void
   notifications: any[]
   unreadCount: number
   onFetchNotifications: () => void
   onMarkNotificationsRead: () => void
 }
 
-export default function UserPanel({ onClose, onOpenPanelStyleModal, onOpenWallpaperManager, notifications, unreadCount, onFetchNotifications, onMarkNotificationsRead }: Props) {
+export default function UserPanel({ onClose, onOpenPanelStyleModal, onOpenWallpaperManager, onOpenMcpModal, notifications, unreadCount, onFetchNotifications, onMarkNotificationsRead }: Props) {
   const t = useT()
   const { lang, setLang } = useLang()
   const { user, logout, refreshUser } = useAuth()
@@ -165,6 +166,11 @@ export default function UserPanel({ onClose, onOpenPanelStyleModal, onOpenWallpa
             <button onClick={onOpenWallpaperManager}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-white/50 transition-all text-sm text-gray-700">
               <ImageIcon className="w-4 h-4 text-gray-800" /> {t('壁纸管理')}
+            </button>
+            {/* MCP 接入：弹窗 */}
+            <button onClick={onOpenMcpModal}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-white/50 transition-all text-sm text-gray-700">
+              <Plug className="w-4 h-4 text-gray-800" /> {t('MCP 接入')}
             </button>
             {/* 通知：展开式列表，展开时拉取最新 */}
             <button onClick={() => { setShowNotifSettings(s => !s); if (!showNotifSettings) onFetchNotifications() }}

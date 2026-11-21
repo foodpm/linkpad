@@ -11,6 +11,7 @@ import { categories as defaultCategories, tools as defaultTools } from './data'
 import { useAutoLinkDescription } from './hooks/useAutoLinkDescription'
 import AuthModal from './components/AuthModal'
 import UserPanel from './components/UserPanel'
+import McpModal from './components/McpModal'
 import LinkPreviewHost, { scheduleLinkPreview, cancelLinkPreview } from './components/LinkPreview'
 import ToolIcon from './components/ToolIcon'
 import LinkDescriptionInput from './components/LinkDescriptionInput'
@@ -195,6 +196,7 @@ export default function App() {
   // Auth modals
   const [showAuth, setShowAuth] = useState(false)
   const [showUserPanel, setShowUserPanel] = useState(false)
+  const [showMcpModal, setShowMcpModal] = useState(false)
   const [showWallpaperManager, setShowWallpaperManager] = useState(false)
   const [showPanelStyle, setShowPanelStyle] = useState(false)
   const [showCreateRepo, setShowCreateRepo] = useState(false)
@@ -2173,8 +2175,12 @@ const handleToggleTodo = async (id: string, is_completed: number) => {
         <UserPanel onClose={() => { setShowUserPanel(false); toggleSidebar(false) }}
           onOpenPanelStyleModal={() => { setShowUserPanel(false); setShowPanelStyle(true) }}
           onOpenWallpaperManager={() => { setShowUserPanel(false); setShowWallpaperManager(true) }}
+          onOpenMcpModal={() => { setShowUserPanel(false); setShowMcpModal(true) }}
           notifications={notifications} unreadCount={unreadCount}
           onFetchNotifications={fetchNotifications} onMarkNotificationsRead={markNotificationsRead} />
+      )}
+      {showMcpModal && (
+        <McpModal onClose={() => setShowMcpModal(false)} />
       )}
       {showPanelStyle && (
         <PanelStyleModal onClose={() => setShowPanelStyle(false)}

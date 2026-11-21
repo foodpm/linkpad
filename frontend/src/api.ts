@@ -548,6 +548,14 @@ export interface WereadNote {
   cover?: string
 }
 
+// MCP 接入（令牌管理；协议端点由 MCP 客户端调用）
+export const mcp = {
+  tokens: () => request('/api/mcp/tokens') as Promise<any[]>,
+  createToken: (name: string) =>
+    request('/api/mcp/tokens', { method: 'POST', body: JSON.stringify({ name }) }) as Promise<{ id: string; name: string; token: string; token_preview: string }>,
+  deleteToken: (id: string) => request(`/api/mcp/tokens/${id}`, { method: 'DELETE' }) as Promise<any>,
+}
+
 // Admin
 export const admin = {
   check: () => request('/api/admin/check') as Promise<{ isAdmin: boolean }>,
