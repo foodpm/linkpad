@@ -96,6 +96,9 @@ export default function McpModal({ onClose }: Props) {
   }
 }`
 
+  // 创建令牌后展示一次的完整配置：占位符替换为明文令牌
+  const tokenConfig = newToken ? configTemplate.replace(`<${t('你的令牌')}>`, newToken) : ''
+
   const suggestedPrompts = [
     t('「查一下我创建的仓库都有哪些」'),
     t('「在我的 XX 仓库里添加一个链接：https://github.com」'),
@@ -160,16 +163,23 @@ export default function McpModal({ onClose }: Props) {
             </button>
           </div>
           {newToken && (
-            <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
-              <p className="text-xs text-amber-600 font-medium mb-1.5">{t('请立即复制保存令牌，仅此一次完整展示')}</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-[13px] font-mono text-amber-800 break-all select-all">{newToken}</code>
-                <button onClick={() => copy(newToken, 'newtoken')}
-                  className="h-9 w-9 shrink-0 rounded-lg bg-white/80 border border-amber-200 flex items-center justify-center text-amber-600 hover:bg-amber-100 transition-all">
-                  {copied === 'newtoken' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+            <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-4">
+              <p className="text-xs text-amber-600 font-medium mb-2">{t('请立即复制保存完整配置，此内容仅展示一次')}</p>
+              <div className="relative bg-white/90 border border-amber-200 rounded-xl p-3 pr-12">
+                <pre className="text-[12px] leading-relaxed font-mono text-amber-800 overflow-x-auto whitespace-pre">{tokenConfig}</pre>
+                <button onClick={() => copy(tokenConfig, 'tokenconfig')} title={t('复制完整配置')}
+                  className="absolute top-2.5 right-2.5 h-8 w-8 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 hover:bg-amber-100 transition-all">
+                  {copied === 'tokenconfig' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                 </button>
               </div>
-              <button onClick={() => setNewToken('')} className="mt-2 text-xs text-amber-600/80 hover:text-amber-700">{t('我已保存，关闭提示')}</button>
+              <div className="mt-2 flex items-center gap-2">
+                <code className="flex-1 text-[12px] font-mono text-amber-700 break-all select-all">{newToken}</code>
+                <button onClick={() => copy(newToken, 'newtoken')}
+                  className="h-8 px-2.5 shrink-0 rounded-lg bg-white/80 border border-amber-200 flex items-center gap-1 text-xs text-amber-600 hover:bg-amber-100 transition-all">
+                  {copied === 'newtoken' ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />} {t('复制令牌')}
+                </button>
+              </div>
+              <button onClick={() => setNewToken('')} className="mt-2.5 text-xs text-amber-600/80 hover:text-amber-700">{t('我已保存，关闭提示')}</button>
             </div>
           )}
           {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
