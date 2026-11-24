@@ -319,6 +319,13 @@ export function isSafeHttpUrl(u: unknown): boolean {
   } catch { return false }
 }
 
+// 仓库链接地址校验：http(s) 网址，或本站 PDF 上传路径 /api/pdfs/<uuid>
+const PDF_URL_RE = /^\/api\/pdfs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+export function isValidLinkUrl(u: unknown): boolean {
+  if (isSafeHttpUrl(u)) return true
+  return typeof u === 'string' && PDF_URL_RE.test(u.trim())
+}
+
 // 提取域名（基于 normalizeUrl：去协议/www 后取第一段路径之前的部分），用于同域名兜底查重
 function urlDomain(u: string): string {
   const n = normalizeUrl(u)
@@ -1377,7 +1384,7 @@ app.post('/api/repos/:id/links', async (c) => {
 
   const { name, url, icon, category_id, category_ids, desc } = await c.req.json()
   if (!name || !url) return c.json({ error: T(c, '名称和地址不能为空') }, 400)
-  if (!isSafeHttpUrl(url)) return c.json({ error: T(c, '链接地址必须是 http(s) 网址') }, 400)
+  if (!isValidLinkUrl(url)) return c.json({ error: T(c, '链接地址必须是 http(s) 网址') }, 400)
 
   // 分类多选：仓库 category_id 存分类名；兼容旧的单选参数
   const requestedCats = normalizeCategoryIds(category_ids)
@@ -1420,7 +1427,7 @@ app.put('/api/links/:id', async (c) => {
   if (!(await canManageRepo(c, link.repo_id))) return c.json({ error: T(c, '无权修改') }, 403)
 
   const { name, url, icon, category_id, category_ids, bg_color, text_color, desc } = await c.req.json()
-  if (url !== undefined && !isSafeHttpUrl(url)) return c.json({ error: T(c, '链接地址必须是 http(s) 网址') }, 400)
+  if (url !== undefined && !isValidLinkUrl(url)) return c.json({ error: T(c, '链接地址必须是 http(s) 网址') }, 400)
   if (name !== undefined) await c.env.DB.prepare('UPDATE repo_links SET name = ? WHERE id = ?').bind(name, id).run()
   if (url !== undefined) await c.env.DB.prepare('UPDATE repo_links SET url = ?, link_status = \'\', last_checked_at = 0, fail_count = 0, last_http_status = 0 WHERE id = ?').bind(url, id).run()
   // URL 变更时后台预热新地址的预览截图（不阻塞响应）
